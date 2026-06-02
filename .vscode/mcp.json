@@ -1,0 +1,19 @@
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "fabric-token",
+      "description": "Fabric API Bearer Token (from az account get-access-token --resource https://api.fabric.microsoft.com)",
+      "password": true
+    }
+  ],
+  "servers": {
+    "Fabric Finance Agent MCP server": {
+      "type": "http",
+      "url": "https://api.fabric.microsoft.com/v1/mcp/workspaces/3a074a45-be8c-4556-8866-bb3c81327a6b/dataagents/46e225d0-6029-4491-a943-76f6dc33ca1f/agent",
+      "headers": {
+        "Authorization": "Bearer ${input:fabric-token}"
+      }
+    }
+  }
+}
