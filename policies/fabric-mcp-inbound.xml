@@ -14,13 +14,13 @@
         </validate-azure-ad-token>
 
         <!-- Extract UPN from the validated JWT -->
-        <set-variable name="caller-upn" value="@{
-            var jwt = (Jwt)context.Variables["validated-jwt"];
-            return jwt.Claims.GetValueOrDefault("upn", "unknown");
-        }" />
+        <set-variable name="caller-upn" value="@{&#xA;            var jwt = (Jwt)context.Variables[&quot;validated-jwt&quot;];&#xA;            return jwt.Claims.GetValueOrDefault(&quot;upn&quot;, &quot;unknown&quot;);&#xA;        }" />
 
         <!-- Route to Fabric Data Agent MCP backend -->
         <set-backend-service base-url="https://api.fabric.microsoft.com/v1/mcp/workspaces/68dff95b-eeae-4b90-a563-557bcd9bde7f/dataagents/9696eb20-a285-4406-b72d-1a6d59e01142/agent" />
+
+        <!-- Strip the /fabric-mcp/ operation path so the backend receives the root path -->
+        <rewrite-uri template="/" />
 
         <set-header name="Content-Type" exists-action="override">
             <value>application/json</value>
@@ -33,7 +33,7 @@
 
         <!-- Emit custom metric for request tracking -->
         <emit-metric name="fabric-mcp-request" value="1" namespace="Fabric MCP Agent">
-            <dimension name="Caller UPN" value="@((string)context.Variables["caller-upn"])" />
+            <dimension name="Caller UPN" value="@((string)context.Variables[&quot;caller-upn&quot;])" />
         </emit-metric>
     </inbound>
 
@@ -46,7 +46,7 @@
 
         <!-- Emit response metric -->
         <emit-metric name="fabric-mcp-response" value="1" namespace="Fabric MCP Agent">
-            <dimension name="Caller UPN" value="@((string)context.Variables["caller-upn"])" />
+            <dimension name="Caller UPN" value="@((string)context.Variables[&quot;caller-upn&quot;])" />
             <dimension name="Status Code" value="@(context.Response.StatusCode.ToString())" />
         </emit-metric>
     </outbound>
@@ -54,9 +54,19 @@
     <on-error>
         <base />
 
+        <!-- MCP spec / RFC 9728: 401 must include WWW-Authenticate pointing to
+             the protected-resource metadata so clients can discover OAuth flow. -->
+        <choose>
+            <when condition="@(context.Response != null &amp;&amp; context.Response.StatusCode == 401)">
+                <set-header name="WWW-Authenticate" exists-action="override">
+                    <value>Bearer realm="fabric-mcp", resource_metadata="https://pcc-apim.azure-api.net/.well-known/oauth-protected-resource"</value>
+                </set-header>
+            </when>
+        </choose>
+
         <!-- Emit error metric -->
         <emit-metric name="fabric-mcp-error" value="1" namespace="Fabric MCP Agent">
-            <dimension name="Caller UPN" value="@(context.Variables.ContainsKey("caller-upn") ? (string)context.Variables["caller-upn"] : "unknown")" />
+            <dimension name="Caller UPN" value="@(context.Variables.ContainsKey(&quot;caller-upn&quot;) ? (string)context.Variables[&quot;caller-upn&quot;] : &quot;unknown&quot;)" />
             <dimension name="Error Reason" value="@(context.LastError.Reason)" />
         </emit-metric>
     </on-error>

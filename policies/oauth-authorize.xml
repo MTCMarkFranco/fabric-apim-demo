@@ -1,11 +1,29 @@
 <policies>
     <inbound>
         <!-- No <base /> — unauthenticated endpoint -->
-        <!-- Redirect to Entra ID, passing through the full query string as-is -->
+        <!-- Rewrite the query so it works against Entra ID v2.0:
+             - drop RFC 8707 "resource" parameter (Entra v2.0 rejects unknown "resource")
+             - force "scope" to the Fabric API scope (MCP clients may pass our APIM URL as scope) -->
+        <set-variable name="rewritten-authorize-url" value="@{
+            var raw = context.Request.Url.QueryString ?? &quot;&quot;;
+            if (raw.StartsWith(&quot;?&quot;)) { raw = raw.Substring(1); }
+            var kept = new System.Collections.Generic.List&lt;string&gt;();
+            foreach (var pair in raw.Split('&amp;'))
+            {
+                if (string.IsNullOrEmpty(pair)) { continue; }
+                var eq = pair.IndexOf('=');
+                var key = eq &gt;= 0 ? pair.Substring(0, eq) : pair;
+                if (key.Equals(&quot;resource&quot;, System.StringComparison.OrdinalIgnoreCase)) { continue; }
+                if (key.Equals(&quot;scope&quot;, System.StringComparison.OrdinalIgnoreCase)) { continue; }
+                kept.Add(pair);
+            }
+            kept.Add(&quot;scope=&quot; + System.Net.WebUtility.UrlEncode(&quot;https://api.fabric.microsoft.com/.default offline_access openid profile&quot;));
+            return &quot;https://login.microsoftonline.com/d7d6e19e-5176-4dea-a576-1681f77e0243/oauth2/v2.0/authorize?&quot; + string.Join(&quot;&amp;&quot;, kept);
+        }" />
         <return-response>
             <set-status code="302" reason="Redirect to Identity Provider" />
             <set-header name="Location" exists-action="override">
-                <value>@($"https://login.microsoftonline.com/d7d6e19e-5176-4dea-a576-1681f77e0243/oauth2/v2.0/authorize{context.Request.Url.QueryString}")</value>
+                <value>@((string)context.Variables["rewritten-authorize-url"])</value>
             </set-header>
         </return-response>
     </inbound>

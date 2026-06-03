@@ -84,7 +84,9 @@ if ($existingApp) {
         --web-redirect-uris `
             "https://claude.ai/api/mcp/auth_callback" `
             "https://vscode.dev/redirect" `
-            "https://127.0.0.1:33418"
+            "https://127.0.0.1:33418" `
+            "http://127.0.0.1:33418/" `
+            "http://localhost:33418/"
 
     # Enable implicit grant (access + ID tokens)
     az ad app update --id $AppId `
@@ -112,6 +114,8 @@ if ($existingApp) {
             "https://claude.ai/api/mcp/auth_callback" `
             "https://vscode.dev/redirect" `
             "https://127.0.0.1:33418" `
+            "http://127.0.0.1:33418/" `
+            "http://localhost:33418/" `
         --enable-access-token-issuance true `
         --enable-id-token-issuance true
 
@@ -170,14 +174,14 @@ Write-Host ""
 # -------------------------------------------------------------------
 # 3. Create or update the API with correct path prefix
 # -------------------------------------------------------------------
-Write-Host "[3/7] Creating/updating API '$ApiId' with path 'fabric-mcp'..." -ForegroundColor Yellow
+Write-Host "[3/8] Creating/updating API '$ApiId' with root path (operations prefixed with /fabric-mcp/)..." -ForegroundColor Yellow
 
 az apim api create `
     --resource-group $ResourceGroup `
     --service-name $ServiceName `
     --api-id $ApiId `
     --display-name "Fabric MCP Data Agent" `
-    --path "fabric-mcp" `
+    --path "" `
     --protocols https `
     --subscription-required false
 
@@ -189,11 +193,11 @@ Write-Host ""
 # -------------------------------------------------------------------
 # 4. Create operations with correct HTTP method + URL matching
 # -------------------------------------------------------------------
-Write-Host "[4/7] Creating API operations..." -ForegroundColor Yellow
+Write-Host "[4/8] Creating API operations..." -ForegroundColor Yellow
 
-# Operation 1: MCP Endpoint (POST /)
+# Operation 1: MCP Endpoint (POST /fabric-mcp/)
 # This is the main MCP JSON-RPC endpoint
-Write-Host "  Creating: POST / (MCP Endpoint)..."
+Write-Host "  Creating: POST /fabric-mcp/ (MCP Endpoint)..."
 az apim api operation create `
     --resource-group $ResourceGroup `
     --service-name $ServiceName `
@@ -201,11 +205,11 @@ az apim api operation create `
     --operation-id "mcp-endpoint" `
     --display-name "MCP Endpoint" `
     --method POST `
-    --url-template "/" `
+    --url-template "/fabric-mcp/" `
     2>$null
 
-# Operation 2: OAuth Metadata (GET /.well-known/oauth-authorization-server)
-Write-Host "  Creating: GET /.well-known/oauth-authorization-server (OAuth Metadata)..."
+# Operation 2: OAuth Metadata (GET /fabric-mcp/.well-known/oauth-authorization-server)
+Write-Host "  Creating: GET /fabric-mcp/.well-known/oauth-authorization-server (OAuth Metadata)..."
 az apim api operation create `
     --resource-group $ResourceGroup `
     --service-name $ServiceName `
@@ -213,11 +217,11 @@ az apim api operation create `
     --operation-id "oauth-metadata" `
     --display-name "OAuth Authorization Server Metadata" `
     --method GET `
-    --url-template "/.well-known/oauth-authorization-server" `
+    --url-template "/fabric-mcp/.well-known/oauth-authorization-server" `
     2>$null
 
-# Operation 3: Authorize (GET /authorize)
-Write-Host "  Creating: GET /authorize (OAuth Authorize)..."
+# Operation 3: Authorize (GET /fabric-mcp/authorize)
+Write-Host "  Creating: GET /fabric-mcp/authorize (OAuth Authorize)..."
 az apim api operation create `
     --resource-group $ResourceGroup `
     --service-name $ServiceName `
@@ -225,11 +229,11 @@ az apim api operation create `
     --operation-id "oauth-authorize" `
     --display-name "OAuth Authorize" `
     --method GET `
-    --url-template "/authorize" `
+    --url-template "/fabric-mcp/authorize" `
     2>$null
 
-# Operation 4: Token (POST /token)
-Write-Host "  Creating: POST /token (OAuth Token)..."
+# Operation 4: Token (POST /fabric-mcp/token)
+Write-Host "  Creating: POST /fabric-mcp/token (OAuth Token)..."
 az apim api operation create `
     --resource-group $ResourceGroup `
     --service-name $ServiceName `
@@ -237,7 +241,20 @@ az apim api operation create `
     --operation-id "oauth-token" `
     --display-name "OAuth Token" `
     --method POST `
-    --url-template "/token" `
+    --url-template "/fabric-mcp/token" `
+    2>$null
+
+# Operation 5: Protected Resource Metadata (GET /.well-known/oauth-protected-resource)
+# RFC 9728 — MCP clients discover auth server from this origin-level endpoint
+Write-Host "  Creating: GET /.well-known/oauth-protected-resource (RFC 9728 Discovery)..."
+az apim api operation create `
+    --resource-group $ResourceGroup `
+    --service-name $ServiceName `
+    --api-id $ApiId `
+    --operation-id "oauth-protected-resource" `
+    --display-name "Protected Resource Metadata" `
+    --method GET `
+    --url-template "/.well-known/oauth-protected-resource" `
     2>$null
 
 Write-Host "  All operations created." -ForegroundColor Green
@@ -246,7 +263,7 @@ Write-Host ""
 # -------------------------------------------------------------------
 # 5. Apply operation-level policies
 # -------------------------------------------------------------------
-Write-Host "[5/7] Applying operation-level policies..." -ForegroundColor Yellow
+Write-Host "[5/8] Applying operation-level policies..." -ForegroundColor Yellow
 
 $policiesDir = Join-Path $PSScriptRoot "..\policies"
 
@@ -286,7 +303,7 @@ az apim api operation policy create `
     --value $authorizePolicy `
     2>$null
 
-# OAuth Token policy (POST /token)
+# OAuth Token policy (POST /fabric-mcp/token)
 $tokenPolicy = Get-Content (Join-Path $policiesDir "oauth-token.xml") -Raw
 Write-Host "  Applying: oauth-token ← oauth-token.xml"
 az apim api operation policy create `
@@ -298,13 +315,25 @@ az apim api operation policy create `
     --value $tokenPolicy `
     2>$null
 
+# Protected Resource Metadata policy (GET /.well-known/oauth-protected-resource)
+$protectedResourcePolicy = Get-Content (Join-Path $policiesDir "oauth-protected-resource.xml") -Raw
+Write-Host "  Applying: oauth-protected-resource ← oauth-protected-resource.xml"
+az apim api operation policy create `
+    --resource-group $ResourceGroup `
+    --service-name $ServiceName `
+    --api-id $ApiId `
+    --operation-id "oauth-protected-resource" `
+    --policy-format xml `
+    --value $protectedResourcePolicy `
+    2>$null
+
 Write-Host "  All policies applied." -ForegroundColor Green
 Write-Host ""
 
 # -------------------------------------------------------------------
 # 6. Update OAuth metadata to use relative paths under /fabric-mcp/
 # -------------------------------------------------------------------
-Write-Host "[6/7] Updating OAuth metadata to use MCP-relative paths..." -ForegroundColor Yellow
+Write-Host "[6/8] Updating OAuth metadata to use MCP-relative paths..." -ForegroundColor Yellow
 
 # The OAuth metadata must point clients to /fabric-mcp/authorize and /fabric-mcp/token
 # so the full OAuth flow stays within the MCP server's URL namespace.
@@ -357,7 +386,7 @@ Write-Host ""
 # -------------------------------------------------------------------
 # 7. Verify routing
 # -------------------------------------------------------------------
-Write-Host "[7/7] Verifying endpoint routing..." -ForegroundColor Yellow
+Write-Host "[7/8] Verifying endpoint routing..." -ForegroundColor Yellow
 
 # Test OAuth metadata
 Write-Host "  Testing GET /fabric-mcp/.well-known/oauth-authorization-server..."
@@ -397,10 +426,11 @@ Write-Host ""
 Write-Host "MCP Server URL: https://$ServiceName.azure-api.net/fabric-mcp/" -ForegroundColor White
 Write-Host ""
 Write-Host "Operations configured:" -ForegroundColor White
-Write-Host "  POST /fabric-mcp/           → Fabric Data Agent MCP backend"
+Write-Host "  POST /fabric-mcp/                                      → Fabric Data Agent MCP backend"
 Write-Host "  GET  /fabric-mcp/.well-known/oauth-authorization-server → OAuth metadata"
-Write-Host "  GET  /fabric-mcp/authorize   → 302 redirect to Entra ID"
-Write-Host "  POST /fabric-mcp/token       → Proxy to Entra ID token endpoint"
+Write-Host "  GET  /fabric-mcp/authorize                             → 302 redirect to Entra ID"
+Write-Host "  POST /fabric-mcp/token                                 → Proxy to Entra ID token endpoint"
+Write-Host "  GET  /.well-known/oauth-protected-resource             → RFC 9728 discovery"
 Write-Host ""
 Write-Host "VS Code mcp.json config:" -ForegroundColor White
-Write-Host '  { "type": "http", "url": "https://fabric-ai-demo-pcc.azure-api.net/fabric-mcp/", "oauth": { "clientId": "e5399261-3e94-4f88-b8f0-74cfff758e6d" } }'
+Write-Host '  { "type": "http", "url": "https://pcc-apim.azure-api.net/fabric-mcp/", "oauth": { "clientId": "e5399261-3e94-4f88-b8f0-74cfff758e6d" } }'

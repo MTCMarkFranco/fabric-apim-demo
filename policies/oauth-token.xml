@@ -7,6 +7,32 @@
         <set-header name="Content-Type" exists-action="override">
             <value>application/x-www-form-urlencoded</value>
         </set-header>
+        <!-- Rewrite the body for Entra ID v2.0:
+             - drop RFC 8707 "resource" parameter (rejected by Entra v2.0)
+             - force scope to Fabric API
+             - inject client_secret (MCP clients are public; Entra requires it for web platform) -->
+        <set-body>@{
+            var raw = context.Request.Body.As&lt;string&gt;(preserveContent: true) ?? "";
+            var pairs = raw.Split('&amp;');
+            var kept = new System.Collections.Generic.List&lt;string&gt;();
+            bool hasClientSecret = false;
+            foreach (var p in pairs)
+            {
+                if (string.IsNullOrEmpty(p)) { continue; }
+                var eq = p.IndexOf('=');
+                var key = eq &gt;= 0 ? p.Substring(0, eq) : p;
+                if (key.Equals("resource", System.StringComparison.OrdinalIgnoreCase)) { continue; }
+                if (key.Equals("scope", System.StringComparison.OrdinalIgnoreCase)) { continue; }
+                if (key.Equals("client_secret", System.StringComparison.OrdinalIgnoreCase)) { hasClientSecret = true; }
+                kept.Add(p);
+            }
+            kept.Add("scope=" + System.Net.WebUtility.UrlEncode("https://api.fabric.microsoft.com/.default offline_access openid profile"));
+            if (!hasClientSecret)
+            {
+                kept.Add("client_secret={{fabric-mcp-client-secret}}");
+            }
+            return string.Join("&amp;", kept);
+        }</set-body>
     </inbound>
     <backend>
         <base />

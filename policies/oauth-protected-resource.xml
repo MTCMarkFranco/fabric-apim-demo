@@ -1,0 +1,27 @@
+<policies>
+    <inbound>
+        <!-- No <base /> — this endpoint must be unauthenticated -->
+        <!-- RFC 9728 Protected Resource Metadata -->
+        <return-response>
+            <set-status code="200" reason="OK" />
+            <set-header name="Content-Type" exists-action="override">
+                <value>application/json</value>
+            </set-header>
+            <set-body>{
+  "resource": "https://pcc-apim.azure-api.net/fabric-mcp/",
+  "authorization_servers": ["https://pcc-apim.azure-api.net/fabric-mcp/"],
+  "scopes_supported": ["https://api.fabric.microsoft.com/.default"],
+  "bearer_methods_supported": ["header"]
+}</set-body>
+        </return-response>
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>
