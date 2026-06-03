@@ -189,9 +189,57 @@ The app registration (`e5399261-3e94-4f88-b8f0-74cfff758e6d`) must have:
 | Setting | Value |
 |---------|-------|
 | Platform | Web |
-| Redirect URI | `https://claude.ai/api/mcp/auth_callback` |
+| Redirect URIs | `https://claude.ai/api/mcp/auth_callback`, `https://vscode.dev/redirect`, `http://localhost` (for local clients) |
 | Allow public client flows | Yes |
-| API Permissions | `https://api.fabric.microsoft.com/user_impersonation` (delegated) |
+| Token endpoint auth method | `none` (public client + PKCE) |
+
+**Required Microsoft Graph delegated permissions:**
+
+| Scope | ID | Purpose |
+|-------|----|---------|
+| `User.Read` | `e1fe6dd8-ba31-4d61-89e7-88639da4683d` | Sign-in |
+
+**Required Power BI Service / Fabric (`00000009-0000-0000-c000-000000000000`) delegated permissions:**
+
+| Scope | ID | Why |
+|-------|----|-----|
+| `Datamart.Read.All` | `91f75836-b68c-4fff-84db-4372412a2c82` | Read datamart metadata used by the agent |
+| `DataAgent.Read.All` | `40fa91d5-73ef-412c-a8c8-c8658670d0eb` | Read Data Agent definitions |
+| `DataAgent.Execute.All` | `c6756612-6853-4145-a661-90c1d045b2dc` | **Execute the Data Agent MCP tool — without this, Fabric returns 403** |
+| `Item.Read.All` | `d2bc95fc-440e-4b0e-bafd-97182de7aef5` | Read Fabric workspace items |
+| `Workspace.Read.All` | `b2f1b2fa-f35c-407c-979c-a858a808ba85` | Resolve workspace context |
+
+**Token request must use `scope=https://api.fabric.microsoft.com/.default`** so Entra includes all consented Fabric scopes in the issued token. APIM's `oauth-authorize.xml` and `oauth-token.xml` policies enforce this even if the MCP client passes something else.
+
+**Admin consent is required** for the Fabric scopes (one-time per tenant):
+
+```powershell
+az ad app permission admin-consent --id e5399261-3e94-4f88-b8f0-74cfff758e6d
+```
+
+Apply permission updates and consent with:
+
+```powershell
+# Patch required permissions on the app reg
+$tok = az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv
+$h = @{ Authorization = "Bearer $tok"; "Content-Type" = "application/json" }
+$body = @{
+  requiredResourceAccess = @(
+    @{ resourceAppId = "00000003-0000-0000-c000-000000000000"; resourceAccess = @(
+      @{ id = "e1fe6dd8-ba31-4d61-89e7-88639da4683d"; type = "Scope" }
+    ) },
+    @{ resourceAppId = "00000009-0000-0000-c000-000000000000"; resourceAccess = @(
+      @{ id = "91f75836-b68c-4fff-84db-4372412a2c82"; type = "Scope" },
+      @{ id = "c6756612-6853-4145-a661-90c1d045b2dc"; type = "Scope" },
+      @{ id = "40fa91d5-73ef-412c-a8c8-c8658670d0eb"; type = "Scope" },
+      @{ id = "d2bc95fc-440e-4b0e-bafd-97182de7aef5"; type = "Scope" },
+      @{ id = "b2f1b2fa-f35c-407c-979c-a858a808ba85"; type = "Scope" }
+    ) }
+  )
+} | ConvertTo-Json -Depth 6
+Invoke-RestMethod -Method PATCH -Uri "https://graph.microsoft.com/v1.0/applications(appId='e5399261-3e94-4f88-b8f0-74cfff758e6d')" -Headers $h -Body $body
+az ad app permission admin-consent --id e5399261-3e94-4f88-b8f0-74cfff758e6d
+```
 
 ### OAuth Flow Diagram
 
@@ -284,11 +332,26 @@ fabric-pcc/
 ├── policies/
 │   ├── fabric-mcp-inbound.xml      # APIM policy — MCP endpoint (token validation, routing, metrics)
 │   ├── oauth-metadata.xml          # APIM policy — /.well-known/oauth-authorization-server
-│   ├── oauth-authorize.xml         # APIM policy — /authorize (302 redirect to Entra)
-│   └── oauth-token.xml             # APIM policy — /token (proxy to Entra token endpoint)
-├── kql.md                          # KQL queries reference (gateway logs + LLM message logging)
-└── README.md                       # This file
+│   ├── oauth-protected-resource.xml # APIM policy — /.well-known/oauth-protected-resource (RFC 9728)
+│   ├── oauth-authorize.xml          # APIM policy — /authorize (302 redirect to Entra)
+│   └── oauth-token.xml              # APIM policy — /token (proxy to Entra token endpoint)
+├── scripts/
+│   ├── deploy-apim-mcp-server.ps1   # One-time provisioning of APIM API + operations + named values
+│   └── redeploy-policies.ps1        # Push all policy XML files to APIM (idempotent)
+├── kql.md                           # KQL queries reference (gateway logs + LLM message logging)
+└── README.md                        # This file
 ```
+
+### Why so many APIM operations?
+
+Different MCP/OAuth client versions probe different RFC discovery paths. Traffic logs show all of these are actively hit:
+
+- `/fabric-mcp` and `/fabric-mcp/` (POST/GET/DELETE) — MCP Streamable HTTP; clients differ on trailing slash
+- `/.well-known/oauth-protected-resource` (RFC 9728 root) and `/.well-known/oauth-protected-resource/fabric-mcp/` (path-suffixed)
+- `/.well-known/oauth-authorization-server` (RFC 8414 root), `/.well-known/oauth-authorization-server/fabric-mcp/` (path-suffixed), and `/fabric-mcp/.well-known/oauth-authorization-server` (some MCP clients)
+- `/fabric-mcp/authorize`, `/fabric-mcp/token` — the actual auth endpoints
+
+Keep them all — removing any one breaks at least one client variant.
 
 ---
 
@@ -333,7 +396,8 @@ $r.Headers['Location']  # Should start with https://login.microsoftonline.com/..
 |-------|----------|
 | `401 Unauthorized` from APIM | Token expired — VS Code/Claude should auto-refresh; for cURL regenerate with `az account get-access-token` |
 | `401` with valid token | Check tenant ID in token matches `32dc2feb-...` (onemtc.net) |
-| `403 Forbidden` from Fabric | Your user needs access to the Fabric workspace |
+| `403 Forbidden` from Fabric backend (after successful auth) | App reg is missing `DataAgent.Execute.All` (and friends). See **Required Fabric delegated permissions** above. After patching, re-run admin consent and **disconnect/reconnect the MCP client** so it re-issues a token with the new scopes — existing refresh tokens carry the old scope set. |
+| `403 Forbidden` from Fabric backend with all scopes present | Your user account also needs Contributor (or higher) access to the Fabric workspace hosting the Data Agent |
 | No UPN in gateway logs | Ensure API Diagnostics has `X-Caller-UPN` in "Headers to log" (see §5) |
 | No rows in `ApiManagementGatewayLogs` | Check Diagnostic Settings exist (APIM → Diagnostic settings) and wait ~5 min |
 | VS Code MCP won't connect | Ensure `oauth` property (not `auth`) is set in `.vscode/mcp.json` |
@@ -341,6 +405,19 @@ $r.Headers['Location']  # Should start with https://login.microsoftonline.com/..
 | Claude Desktop 401 on authorize/token | Ensure subscription is not required on the OAuth API |
 | Token audience mismatch | Ensure scope is `https://api.fabric.microsoft.com/.default` (not `.com/user_impersonation`) |
 | Double `??` in authorize URL | `context.Request.Url.QueryString` already includes `?` — do not prepend another |
+
+---
+
+### Diagnosing `403 Forbidden` from the Fabric backend
+
+Check APIM gateway logs for the failing request — if `BackendResponseCode = 403` (and APIM didn't reject the token itself, i.e. no `LastErrorReason`), the issued token reached Fabric but lacked a required scope.
+
+```powershell
+$wsId = az resource show --ids "/subscriptions/<sub>/resourcegroups/<rg>/providers/Microsoft.OperationalInsights/workspaces/<ws>" --query properties.customerId -o tsv
+az monitor log-analytics query -w $wsId --analytics-query "ApiManagementGatewayLogs | where TimeGenerated > ago(15m) | where ApiId == 'FABRIC-MCP-API' | project TimeGenerated, Method, Url, ResponseCode, BackendResponseCode, LastErrorReason, LastErrorMessage | order by TimeGenerated desc | take 30" -o table
+```
+
+The fix is almost always to add the missing Fabric scope to the app registration (see [Required Fabric delegated permissions](#entra-id-app-registration-requirements)) and grant admin consent.
 
 ---
 

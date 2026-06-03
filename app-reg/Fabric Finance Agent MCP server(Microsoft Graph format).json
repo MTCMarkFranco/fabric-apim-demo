@@ -1,11 +1,11 @@
 {
-	"id": "10f984ef-c634-4bbd-b007-49f26b9f5c2a",
+	"id": "d2e3ff96-159d-46fa-96e5-0ae00e81073b",
 	"deletedDateTime": null,
 	"appId": "e5399261-3e94-4f88-b8f0-74cfff758e6d",
 	"applicationTemplateId": null,
 	"disabledByMicrosoftStatus": null,
-	"createdByAppId": "18ed3507-a475-4ccb-b669-d66bc9f2a36e",
-	"createdDateTime": "2026-06-03T14:52:32Z",
+	"createdByAppId": "04b07795-8ddb-461a-bbee-02f9e1bf7b46",
+	"createdDateTime": "2026-06-03T18:38:16Z",
 	"displayName": "Fabric Finance Agent MCP server",
 	"description": null,
 	"groupMembershipClaims": null,
@@ -15,15 +15,16 @@
 	"isFallbackPublicClient": true,
 	"nativeAuthenticationApisEnabled": null,
 	"notes": null,
-	"publisherDomain": "onemtc.net",
+	"publisherDomain": "MngEnvMCAP490549.onmicrosoft.com",
 	"serviceManagementReference": null,
-	"signInAudience": "AzureADMyOrg",
+	"signInAudience": "AzureADMultipleOrgs",
 	"tags": [],
 	"tokenEncryptionKeyId": null,
 	"samlMetadataUrl": null,
 	"defaultRedirectUri": null,
 	"certification": null,
 	"optionalClaims": null,
+	"servicePrincipalLockConfiguration": null,
 	"requestSignatureVerification": null,
 	"addIns": [],
 	"api": {
@@ -50,15 +51,19 @@
 		{
 			"customKeyIdentifier": null,
 			"displayName": "default",
-			"endDateTime": "2026-11-30T15:56:57.481Z",
-			"hint": "NOO",
-			"keyId": "e4e7a076-f2e1-44b9-b35a-a85d5db6a528",
+			"endDateTime": "2026-11-30T21:17:21.078Z",
+			"hint": "ZRN",
+			"keyId": "0bab4e97-fac7-4c7b-a015-2b2919083802",
 			"secretText": null,
-			"startDateTime": "2026-06-03T14:56:57.481Z"
+			"startDateTime": "2026-06-03T20:17:21.078Z"
 		}
 	],
 	"publicClient": {
-		"redirectUris": []
+		"redirectUris": [
+			"http://127.0.0.1",
+			"http://localhost",
+			"ms-appx-web://Microsoft.AAD.BrokerPlugin/e5399261-3e94-4f88-b8f0-74cfff758e6d"
+		]
 	},
 	"requiredResourceAccess": [
 		{
@@ -66,6 +71,22 @@
 			"resourceAccess": [
 				{
 					"id": "91f75836-b68c-4fff-84db-4372412a2c82",
+					"type": "Scope"
+				},
+				{
+					"id": "c6756612-6853-4145-a661-90c1d045b2dc",
+					"type": "Scope"
+				},
+				{
+					"id": "40fa91d5-73ef-412c-a8c8-c8658670d0eb",
+					"type": "Scope"
+				},
+				{
+					"id": "d2bc95fc-440e-4b0e-bafd-97182de7aef5",
+					"type": "Scope"
+				},
+				{
+					"id": "b2f1b2fa-f35c-407c-979c-a858a808ba85",
 					"type": "Scope"
 				}
 			]
@@ -89,9 +110,11 @@
 		"homePageUrl": null,
 		"logoutUrl": null,
 		"redirectUris": [
-			"https://claude.ai/api/mcp/auth_callback",
+			"http://localhost:33418/",
+			"http://127.0.0.1:33418/",
+			"https://127.0.0.1:33418",
 			"https://vscode.dev/redirect",
-			"https://127.0.0.1:33418"
+			"https://claude.ai/api/mcp/auth_callback"
 		],
 		"implicitGrantSettings": {
 			"enableAccessTokenIssuance": true,
@@ -99,7 +122,15 @@
 		},
 		"redirectUriSettings": [
 			{
-				"uri": "https://claude.ai/api/mcp/auth_callback",
+				"uri": "http://localhost:33418/",
+				"index": null
+			},
+			{
+				"uri": "http://127.0.0.1:33418/",
+				"index": null
+			},
+			{
+				"uri": "https://127.0.0.1:33418",
 				"index": null
 			},
 			{
@@ -107,18 +138,10 @@
 				"index": null
 			},
 			{
-				"uri": "https://127.0.0.1:33418",
+				"uri": "https://claude.ai/api/mcp/auth_callback",
 				"index": null
 			}
 		]
-	},
-	"servicePrincipalLockConfiguration": {
-		"isEnabled": true,
-		"allProperties": true,
-		"credentialsWithUsageVerify": true,
-		"credentialsWithUsageSign": true,
-		"identifierUris": false,
-		"tokenEncryptionKeyId": true
 	},
 	"spa": {
 		"redirectUris": []
