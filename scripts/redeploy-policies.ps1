@@ -23,9 +23,12 @@ $operations = @(
     @{ id = "mcp-endpoint-get-noslash";    file = "fabric-mcp-inbound.xml" }
     @{ id = "mcp-endpoint-delete-noslash"; file = "fabric-mcp-inbound.xml" }
     @{ id = "oauth-metadata";            file = "oauth-metadata.xml" }
+    @{ id = "oauth-metadata-path";       file = "oauth-metadata.xml" }
+    @{ id = "oauth-metadata-root";       file = "oauth-metadata.xml" }
     @{ id = "oauth-authorize";           file = "oauth-authorize.xml" }
     @{ id = "oauth-token";               file = "oauth-token.xml" }
     @{ id = "oauth-protected-resource";  file = "oauth-protected-resource.xml" }
+    @{ id = "oauth-protected-resource-path"; file = "oauth-protected-resource.xml" }
 )
 
 $failures = 0
