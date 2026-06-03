@@ -1,0 +1,20 @@
+<policies>
+    <inbound>
+        <!-- No <base /> — unauthenticated endpoint -->
+        <!-- Proxy the token exchange to Entra ID token endpoint -->
+        <set-backend-service base-url="https://login.microsoftonline.com/32dc2feb-7716-4cf8-b1a6-f02cf37fd6bf/oauth2/v2.0" />
+        <rewrite-uri template="/token" copy-unmatched-params="false" />
+        <set-header name="Content-Type" exists-action="override">
+            <value>application/x-www-form-urlencoded</value>
+        </set-header>
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

@@ -1,0 +1,30 @@
+<policies>
+    <inbound>
+        <!-- No <base /> — this endpoint must be unauthenticated -->
+        <return-response>
+            <set-status code="200" reason="OK" />
+            <set-header name="Content-Type" exists-action="override">
+                <value>application/json</value>
+            </set-header>
+            <set-body>{
+  "issuer": "https://login.microsoftonline.com/32dc2feb-7716-4cf8-b1a6-f02cf37fd6bf/v2.0",
+  "authorization_endpoint": "https://fabric-ai-demo-pcc.azure-api.net/authorize",
+  "token_endpoint": "https://fabric-ai-demo-pcc.azure-api.net/token",
+  "scopes_supported": ["https://api.fabric.microsoft.com/.default", "openid", "profile", "offline_access"],
+  "response_types_supported": ["code"],
+  "response_modes_supported": ["query"],
+  "grant_types_supported": ["authorization_code", "refresh_token"],
+  "code_challenge_methods_supported": ["S256"]
+}</set-body>
+        </return-response>
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

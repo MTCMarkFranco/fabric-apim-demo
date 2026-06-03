@@ -1,0 +1,21 @@
+<policies>
+    <inbound>
+        <!-- No <base /> — unauthenticated endpoint -->
+        <!-- Redirect to Entra ID, passing through the full query string as-is -->
+        <return-response>
+            <set-status code="302" reason="Redirect to Identity Provider" />
+            <set-header name="Location" exists-action="override">
+                <value>@($"https://login.microsoftonline.com/32dc2feb-7716-4cf8-b1a6-f02cf37fd6bf/oauth2/v2.0/authorize{context.Request.Url.QueryString}")</value>
+            </set-header>
+        </return-response>
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

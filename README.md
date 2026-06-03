@@ -1,28 +1,39 @@
 # Fabric MCP Data Agent — API Management Gateway
 
-This project configures Azure API Management (APIM) as a secure gateway in front of a Microsoft Fabric Data Agent MCP endpoint. APIM handles pre-authentication (Entra ID token validation), observability (Log Analytics + App Insights), and subscription-based access tracking.
+This project configures Azure API Management (APIM) as a secure gateway in front of a Microsoft Fabric Data Agent MCP endpoint. APIM handles:
+
+- **OAuth Authorization Server facade** — MCP clients (VS Code, Claude Desktop) use standard OAuth discovery + PKCE flow; APIM proxies to Entra ID
+- **Pre-authentication** — Validates Entra ID JWT tokens before forwarding to Fabric
+- **Observability** — Log Analytics gateway logs, custom metrics, LLM message logging
+- **Group-based access control** — Optional JWT claim filtering by security group
 
 ## Architecture
 
 ```
-┌──────────────┐     ┌───────────────────┐     ┌─────────────────────────┐
-│  MCP Client  │────▶│  Azure API Mgmt   │────▶│  Fabric Data Agent MCP  │
-│ (VS Code,    │     │  fabric-ai-demo-  │     │  (Finance Agent)        │
-│  Claude,     │     │  pcc              │     │                         │
-│  curl)       │     │                   │     │  Workspace: 3a074a45... │
-└──────────────┘     └───────────────────┘     └─────────────────────────┘
-       │                      │
-       │ Bearer Token         │ Logs to App Insights
-       │ + Subscription Key   │ → Log Analytics
-       │                      │ Custom Metrics
+┌──────────────┐     ┌───────────────────────────┐     ┌─────────────────────────┐
+│  MCP Client  │────▶│  Azure API Management     │────▶│  Fabric Data Agent MCP  │
+│ (VS Code,    │     │  fabric-ai-demo-pcc       │     │  (Finance Agent)        │
+│  Claude,     │     │                           │     │                         │
+│  curl)       │     │  ┌─ /.well-known/oauth ─┐ │     │  Workspace: 3a074a45... │
+└──────────────┘     │  │  /authorize (302→Entra)│ │     └─────────────────────────┘
+       │             │  │  /token (proxy→Entra)  │ │
+       │ OAuth PKCE  │  └────────────────────────┘ │
+       │ + Bearer    │                             │
+       │             │  Logs → App Insights        │
+       │             │       → Log Analytics       │
+       │             │  Custom Metrics (UPN-keyed) │
+       └─────────────┴─────────────────────────────┘
 ```
 
 ## Endpoints
 
-| Endpoint | URL |
-|----------|-----|
-| **APIM Gateway** | `https://fabric-ai-demo-pcc.azure-api.net/fabric-mcp` |
-| **Direct Fabric** | `https://api.fabric.microsoft.com/v1/mcp/workspaces/3a074a45-be8c-4556-8866-bb3c81327a6b/dataagents/46e225d0-6029-4491-a943-76f6dc33ca1f/agent` |
+| Endpoint | URL | Auth Required |
+|----------|-----|---------------|
+| **MCP Gateway** | `https://fabric-ai-demo-pcc.azure-api.net/fabric-mcp/` | Bearer token + subscription key |
+| **OAuth Metadata** | `https://fabric-ai-demo-pcc.azure-api.net/.well-known/oauth-authorization-server` | None |
+| **Authorize** | `https://fabric-ai-demo-pcc.azure-api.net/authorize` | None (redirects to Entra) |
+| **Token** | `https://fabric-ai-demo-pcc.azure-api.net/token` | None (proxies to Entra) |
+| **Direct Fabric** | `https://api.fabric.microsoft.com/v1/mcp/workspaces/3a074a45-be8c-4556-8866-bb3c81327a6b/dataagents/46e225d0-6029-4491-a943-76f6dc33ca1f/agent` | Bearer token |
 
 ## Prerequisites
 
@@ -126,118 +137,83 @@ Invoke-RestMethod -Uri "https://fabric-ai-demo-pcc.azure-api.net/fabric-mcp" -Me
 
 ## 3. VS Code Configuration
 
-The `.vscode/mcp.json` file connects VS Code's MCP client directly to the Fabric endpoint (bypassing APIM for local dev):
+The `.vscode/mcp.json` file connects VS Code's MCP client to the Fabric endpoint through APIM with interactive OAuth authentication:
 
 ```json
 {
-  "inputs": [
-    {
-      "type": "promptString",
-      "id": "fabric-token",
-      "description": "Fabric API Bearer Token (from az account get-access-token --resource https://api.fabric.microsoft.com)",
-      "password": true
-    }
-  ],
   "servers": {
     "Fabric Finance Agent MCP server": {
       "type": "http",
-      "url": "https://api.fabric.microsoft.com/v1/mcp/workspaces/3a074a45-be8c-4556-8866-bb3c81327a6b/dataagents/46e225d0-6029-4491-a943-76f6dc33ca1f/agent",
-      "headers": {
-        "Authorization": "Bearer ${input:fabric-token}"
+      "url": "https://fabric-ai-demo-pcc.azure-api.net/fabric-mcp/",
+      "oauth": {
+        "clientId": "d0f4085a-7692-43bd-8fa8-46acbe6908d9"
       }
     }
   }
 }
 ```
 
-When prompted for the token, run:
+When the MCP server starts, VS Code will:
+1. Fetch `/.well-known/oauth-authorization-server` from the gateway to discover auth endpoints
+2. Open a browser popup for interactive Entra ID login (Public Client + PKCE)
+3. Exchange the auth code for a token via the `/token` endpoint
+4. Attach the Bearer token to all MCP requests automatically
 
-```bash
-az account get-access-token --resource https://api.fabric.microsoft.com --query accessToken -o tsv
-```
+No manual token pasting required — VS Code handles the full OAuth lifecycle.
 
 ---
 
-## 4. Claude Desktop / Claude Code Configuration
+## 4. Claude Desktop Configuration
 
-Claude Desktop and Claude Code support MCP servers with OAuth-based authentication. To configure Fabric MCP with corporate credentials (Entra ID), you need to set up the MCP server with the Azure AD OAuth provider.
+Claude Desktop supports remote MCP servers with OAuth authentication. APIM serves as the OAuth authorization server facade, redirecting to Entra ID for interactive login.
 
-### Claude Code (`~/.claude/claude_desktop_config.json` or project `.mcp.json`)
+### Setup Steps
 
-```json
-{
-  "mcpServers": {
-    "fabric-finance-agent": {
-      "type": "streamable-http",
-      "url": "https://fabric-ai-demo-pcc.azure-api.net/fabric-mcp",
-      "headers": {
-        "Ocp-Apim-Subscription-Key": "<your-biz-group-1-subscription-key>"
-      },
-      "auth": {
-        "type": "azure_entra",
-        "tenantId": "32dc2feb-7716-4cf8-b1a6-f02cf37fd6bf",
-        "clientId": "04b07795-8ddb-461a-bbee-02f9e1bf7b46",
-        "scope": "https://api.fabric.microsoft.com/.default"
-      }
-    }
-  }
-}
+1. **In Claude Desktop:** Add a new MCP server connection
+   - **Server URL:** `https://fabric-ai-demo-pcc.azure-api.net/fabric-mcp/`
+   - **Client ID:** `d0f4085a-7692-43bd-8fa8-46acbe6908d9`
+
+2. **Click Connect** — Claude Desktop will:
+   - Discover auth endpoints via `/.well-known/oauth-authorization-server`
+   - Open your browser to Entra ID login (APIM `/authorize` → 302 to `login.microsoftonline.com`)
+   - After sign-in, Entra redirects back to `https://claude.ai/api/mcp/auth_callback` with an auth code
+   - Claude exchanges the code for a token via APIM `/token` (proxied to Entra)
+   - All subsequent MCP requests include the Bearer token automatically
+
+3. **Verify:** Ask Claude a question like _"Which product had the highest sales?"_ — it should invoke the Fabric Finance Agent tool
+
+### Entra ID App Registration Requirements
+
+The app registration (`d0f4085a-7692-43bd-8fa8-46acbe6908d9`) must have:
+
+| Setting | Value |
+|---------|-------|
+| Platform | Web |
+| Redirect URI | `https://claude.ai/api/mcp/auth_callback` |
+| Allow public client flows | Yes |
+| API Permissions | `https://api.fabric.microsoft.com/user_impersonation` (delegated) |
+
+### OAuth Flow Diagram
+
 ```
-
-> **Note:** The `clientId` above (`04b07795-8ddb-461a-bbee-02f9e1bf7b46`) is the Azure CLI's well-known public client app ID. If your organization has a dedicated app registration for this MCP integration, replace it with that app's client ID.
-
-### Configuration Properties Explained
-
-| Property | Value | Purpose |
-|----------|-------|---------|
-| `type` | `streamable-http` | HTTP-based MCP transport |
-| `url` | `https://fabric-ai-demo-pcc.azure-api.net/fabric-mcp` | APIM gateway endpoint |
-| `auth.type` | `azure_entra` | Microsoft Entra ID (Azure AD) authentication |
-| `auth.tenantId` | `32dc2feb-7716-4cf8-b1a6-f02cf37fd6bf` | onemtc.net tenant |
-| `auth.clientId` | App registration client ID | The app used for the OAuth device code / interactive flow |
-| `auth.scope` | `https://api.fabric.microsoft.com/.default` | Fabric API scope — ensures the token audience matches what APIM validates |
-| `headers.Ocp-Apim-Subscription-Key` | Subscription key | APIM subscription for tracking |
-
-### Setup Steps for Claude Desktop
-
-1. **Locate config file:**
-   - **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-   - **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-
-2. **Add the server config** from the JSON block above to the `mcpServers` section
-
-3. **Restart Claude Desktop** — it will detect the new MCP server
-
-4. **Authenticate:** On first use, Claude will trigger the corporate login flow (device code or browser redirect). Sign in with your `@onemtc.net` credentials.
-
-5. **Verify:** Ask Claude a question like _"Which product had the highest sales?"_ — it should invoke the Fabric Finance Agent tool
-
-### If `azure_entra` auth type is not supported
-
-If your version of Claude doesn't support `azure_entra` natively, use a token-helper approach:
-
-```json
-{
-  "mcpServers": {
-    "fabric-finance-agent": {
-      "type": "streamable-http",
-      "url": "https://fabric-ai-demo-pcc.azure-api.net/fabric-mcp",
-      "headers": {
-        "Ocp-Apim-Subscription-Key": "<your-biz-group-1-subscription-key>",
-        "Authorization": "Bearer <paste-token-here>"
-      }
-    }
-  }
-}
+Claude Desktop                    APIM Gateway                     Entra ID
+     │                                │                               │
+     │─── GET /.well-known/oauth ────▶│                               │
+     │◀── {authorize, token URLs} ────│                               │
+     │                                │                               │
+     │─── GET /authorize?... ────────▶│                               │
+     │◀── 302 Redirect ──────────────│──── login.microsoftonline ───▶│
+     │                                │                               │
+     │◀── Browser login ─────────────────────────────────────────────│
+     │─── (callback with code) ──────▶│                               │
+     │                                │                               │
+     │─── POST /token {code} ────────▶│─── POST /oauth2/v2.0/token ─▶│
+     │◀── {access_token} ────────────│◀── {access_token} ───────────│
+     │                                │                               │
+     │─── POST /fabric-mcp/ ─────────▶│─── validate JWT ──────────────│
+     │    (Bearer token)              │─── forward to Fabric ─────────│
+     │◀── response ──────────────────│                               │
 ```
-
-Generate the token with:
-
-```bash
-az account get-access-token --resource https://api.fabric.microsoft.com --query accessToken -o tsv
-```
-
-> **Limitation:** Tokens expire after ~1 hour. You'll need to refresh and update the config periodically.
 
 ---
 
@@ -304,11 +280,49 @@ To view: APIM → **Monitoring → Metrics** → Namespace: `Fabric MCP Agent`
 ```
 fabric-pcc/
 ├── .vscode/
-│   └── mcp.json                    # VS Code MCP server config
+│   └── mcp.json                    # VS Code MCP server config (OAuth)
 ├── policies/
-│   └── fabric-mcp-inbound.xml      # APIM policy (paste into portal)
-├── kql.md                          # KQL queries reference
+│   ├── fabric-mcp-inbound.xml      # APIM policy — MCP endpoint (token validation, routing, metrics)
+│   ├── oauth-metadata.xml          # APIM policy — /.well-known/oauth-authorization-server
+│   ├── oauth-authorize.xml         # APIM policy — /authorize (302 redirect to Entra)
+│   └── oauth-token.xml             # APIM policy — /token (proxy to Entra token endpoint)
+├── kql.md                          # KQL queries reference (gateway logs + LLM message logging)
 └── README.md                       # This file
+```
+
+---
+
+## 6. APIM OAuth Endpoint Setup
+
+To enable interactive browser login for MCP clients (VS Code, Claude Desktop), APIM serves as an OAuth authorization server facade. Three endpoints are required on a **root-level API** (no URL suffix) with **subscription not required**.
+
+### API Configuration
+
+1. **Azure Portal → APIM → APIs → + Add API → HTTP**
+   - Display name: `OAuth`
+   - URL suffix: *(empty)*
+   - Subscription required: **No**
+
+2. **Add 3 operations:**
+
+| Method | URL Path | Policy File | Purpose |
+|--------|----------|-------------|---------|
+| GET | `/.well-known/oauth-authorization-server` | `policies/oauth-metadata.xml` | Returns OAuth metadata (endpoints, scopes) |
+| GET | `/authorize` | `policies/oauth-authorize.xml` | 302 redirects to Entra ID with full query string |
+| POST | `/token` | `policies/oauth-token.xml` | Proxies token exchange to Entra ID |
+
+3. **Important:** These operations must **not** inherit token validation from a parent policy. The policies omit `<base />` in inbound to prevent this.
+
+### Verifying the Setup
+
+```powershell
+# Test metadata discovery
+Invoke-RestMethod -Uri "https://fabric-ai-demo-pcc.azure-api.net/.well-known/oauth-authorization-server"
+
+# Test authorize redirect (should return 302)
+$r = Invoke-WebRequest -Uri "https://fabric-ai-demo-pcc.azure-api.net/authorize?response_type=code&client_id=d0f4085a-7692-43bd-8fa8-46acbe6908d9&redirect_uri=https://claude.ai/api/mcp/auth_callback&code_challenge=test&code_challenge_method=S256&state=test" -MaximumRedirection 0 -ErrorAction SilentlyContinue -SkipHttpErrorCheck
+$r.StatusCode  # Should be 302
+$r.Headers['Location']  # Should start with https://login.microsoftonline.com/...
 ```
 
 ---
@@ -317,10 +331,23 @@ fabric-pcc/
 
 | Issue | Solution |
 |-------|----------|
-| `401 Unauthorized` from APIM | Token expired — regenerate with `az account get-access-token` |
+| `401 Unauthorized` from APIM | Token expired — VS Code/Claude should auto-refresh; for cURL regenerate with `az account get-access-token` |
 | `401` with valid token | Check tenant ID in token matches `32dc2feb-...` (onemtc.net) |
 | `403 Forbidden` from Fabric | Your user needs access to the Fabric workspace |
 | No UPN in gateway logs | Ensure API Diagnostics has `X-Caller-UPN` in "Headers to log" (see §5) |
 | No rows in `ApiManagementGatewayLogs` | Check Diagnostic Settings exist (APIM → Diagnostic settings) and wait ~5 min |
-| Claude can't connect | Verify the `url` is reachable and the subscription key is correct |
+| VS Code MCP won't connect | Ensure `oauth` property (not `auth`) is set in `.vscode/mcp.json` |
+| VS Code "metadata not found" | Ensure the `/.well-known/oauth-authorization-server` operation exists on a root-level API with empty URL suffix |
+| Claude Desktop 401 on authorize/token | Ensure subscription is not required on the OAuth API |
 | Token audience mismatch | Ensure scope is `https://api.fabric.microsoft.com/.default` (not `.com/user_impersonation`) |
+| Double `??` in authorize URL | `context.Request.Url.QueryString` already includes `?` — do not prepend another |
+
+---
+
+## 7. Group-Based Access Filtering (Optional)
+
+To restrict MCP access to specific security groups, add a `groups` claim check to the JWT validation policy. See [`policies/group-filtering-setup.md`](policies/group-filtering-setup.md) for the full setup guide covering:
+
+- Configuring the app registration to emit group claims
+- Adding `<required-claims>` to the inbound policy
+- Testing with MSAL.PS token acquisition
