@@ -5,7 +5,7 @@
         <return-response>
             <set-status code="302" reason="Redirect to Identity Provider" />
             <set-header name="Location" exists-action="override">
-                <value>@($"https://login.microsoftonline.com/32dc2feb-7716-4cf8-b1a6-f02cf37fd6bf/oauth2/v2.0/authorize{context.Request.Url.QueryString}")</value>
+                <value>@($"https://login.microsoftonline.com/d7d6e19e-5176-4dea-a576-1681f77e0243/oauth2/v2.0/authorize{context.Request.Url.QueryString}")</value>
             </set-header>
         </return-response>
     </inbound>

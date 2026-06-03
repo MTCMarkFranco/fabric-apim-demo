@@ -38,7 +38,7 @@ This project configures Azure API Management (APIM) as a secure gateway in front
 ## Prerequisites
 
 - Azure CLI installed and signed in (`az login`)
-- Access to the `onemtc.net` tenant (tenant ID: `32dc2feb-7716-4cf8-b1a6-f02cf37fd6bf`)
+- Access to the `onemtc.net` tenant (tenant ID: `d7d6e19e-5176-4dea-a576-1681f77e0243`)
 - APIM subscription key (subscription: `Biz-Group-1`)
 - Permissions to access the Fabric workspace
 
@@ -146,7 +146,7 @@ The `.vscode/mcp.json` file connects VS Code's MCP client to the Fabric endpoint
       "type": "http",
       "url": "https://fabric-ai-demo-pcc.azure-api.net/fabric-mcp/",
       "oauth": {
-        "clientId": "d0f4085a-7692-43bd-8fa8-46acbe6908d9"
+        "clientId": "e5399261-3e94-4f88-b8f0-74cfff758e6d"
       }
     }
   }
@@ -171,7 +171,7 @@ Claude Desktop supports remote MCP servers with OAuth authentication. APIM serve
 
 1. **In Claude Desktop:** Add a new MCP server connection
    - **Server URL:** `https://fabric-ai-demo-pcc.azure-api.net/fabric-mcp/`
-   - **Client ID:** `d0f4085a-7692-43bd-8fa8-46acbe6908d9`
+   - **Client ID:** `e5399261-3e94-4f88-b8f0-74cfff758e6d`
 
 2. **Click Connect** — Claude Desktop will:
    - Discover auth endpoints via `/.well-known/oauth-authorization-server`
@@ -184,7 +184,7 @@ Claude Desktop supports remote MCP servers with OAuth authentication. APIM serve
 
 ### Entra ID App Registration Requirements
 
-The app registration (`d0f4085a-7692-43bd-8fa8-46acbe6908d9`) must have:
+The app registration (`e5399261-3e94-4f88-b8f0-74cfff758e6d`) must have:
 
 | Setting | Value |
 |---------|-------|
@@ -320,7 +320,7 @@ To enable interactive browser login for MCP clients (VS Code, Claude Desktop), A
 Invoke-RestMethod -Uri "https://fabric-ai-demo-pcc.azure-api.net/.well-known/oauth-authorization-server"
 
 # Test authorize redirect (should return 302)
-$r = Invoke-WebRequest -Uri "https://fabric-ai-demo-pcc.azure-api.net/authorize?response_type=code&client_id=d0f4085a-7692-43bd-8fa8-46acbe6908d9&redirect_uri=https://claude.ai/api/mcp/auth_callback&code_challenge=test&code_challenge_method=S256&state=test" -MaximumRedirection 0 -ErrorAction SilentlyContinue -SkipHttpErrorCheck
+$r = Invoke-WebRequest -Uri "https://fabric-ai-demo-pcc.azure-api.net/authorize?response_type=code&client_id=e5399261-3e94-4f88-b8f0-74cfff758e6d&redirect_uri=https://claude.ai/api/mcp/auth_callback&code_challenge=test&code_challenge_method=S256&state=test" -MaximumRedirection 0 -ErrorAction SilentlyContinue -SkipHttpErrorCheck
 $r.StatusCode  # Should be 302
 $r.Headers['Location']  # Should start with https://login.microsoftonline.com/...
 ```

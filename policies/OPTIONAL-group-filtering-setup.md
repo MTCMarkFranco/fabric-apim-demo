@@ -30,7 +30,7 @@ After creation:
 9. Click **Grant admin consent** (or have an admin do this)
 10. Go to **Authentication** → ensure **Allow public client flows** is set to **Yes** (enables device code flow)
 
-Record the **Application (client) ID** and your **Tenant ID** (`32dc2feb-7716-4cf8-b1a6-f02cf37fd6bf`).
+Record the **Application (client) ID** and your **Tenant ID** (`d7d6e19e-5176-4dea-a576-1681f77e0243`).
 
 ### Step B: Acquire a Token via Device Code Flow
 
@@ -39,7 +39,7 @@ Create a helper script that obtains a token. Save as `get-fabric-token.ps1`:
 ```powershell
 # Requires: Install-Module Az.Accounts (or use MSAL.PS)
 param(
-    [string]$TenantId = "32dc2feb-7716-4cf8-b1a6-f02cf37fd6bf",
+    [string]$TenantId = "d7d6e19e-5176-4dea-a576-1681f77e0243",
     [string]$ClientId = "YOUR-CLAUDE-CLIENT-APP-ID",
     [string]$Scope    = "https://api.fabric.microsoft.com/.default"
 )
@@ -110,7 +110,7 @@ The user who authenticates via device code must be a member of the Entra securit
 | Claim | Expected Value | Checked By |
 |-------|---------------|------------|
 | `aud` | `https://api.fabric.microsoft.com` | `validate-azure-ad-token` |
-| `tid` | `32dc2feb-7716-4cf8-b1a6-f02cf37fd6bf` | `validate-azure-ad-token` |
+| `tid` | `d7d6e19e-5176-4dea-a576-1681f77e0243` | `validate-azure-ad-token` |
 | `groups` | Contains your security group Object ID | `<choose>` policy block |
 | `upn` | User's email | Extracted for logging |
 

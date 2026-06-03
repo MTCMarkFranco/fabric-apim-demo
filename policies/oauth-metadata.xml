@@ -7,9 +7,10 @@
                 <value>application/json</value>
             </set-header>
             <set-body>{
-  "issuer": "https://login.microsoftonline.com/32dc2feb-7716-4cf8-b1a6-f02cf37fd6bf/v2.0",
-  "authorization_endpoint": "https://fabric-ai-demo-pcc.azure-api.net/authorize",
-  "token_endpoint": "https://fabric-ai-demo-pcc.azure-api.net/token",
+  "issuer": "https://login.microsoftonline.com/d7d6e19e-5176-4dea-a576-1681f77e0243/v2.0",
+  "authorization_endpoint": "https://pcc-apim.azure-api.net/fabric-mcp/authorize",
+  "token_endpoint": "https://pcc-apim.azure-api.net/fabric-mcp/token",
+  "registration_endpoint": "https://login.microsoftonline.com/d7d6e19e-5176-4dea-a576-1681f77e0243/oauth2/v2.0/register",
   "scopes_supported": ["https://api.fabric.microsoft.com/.default", "openid", "profile", "offline_access"],
   "response_types_supported": ["code"],
   "response_modes_supported": ["query"],
