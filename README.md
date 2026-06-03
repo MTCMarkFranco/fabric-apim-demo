@@ -243,31 +243,49 @@ az account get-access-token --resource https://api.fabric.microsoft.com --query 
 
 ## 5. Observability & Logging
 
-All requests through APIM are logged to Application Insights / Log Analytics with:
+Requests through APIM are tracked via two mechanisms:
 
-| Field | Source | Description |
-|-------|--------|-------------|
-| `callerUpn` | JWT `upn` claim | Who made the request |
-| `subscriptionId` | APIM subscription | Which business group |
-| `userQuery` | MCP request body | The question asked |
-| `assistantResponse` | MCP response body | The agent's answer (truncated to 4KB) |
-| `backendLatencyMs` | APIM timing | Round-trip to Fabric |
-| `operationId` | APIM request ID | Correlation ID |
+| Mechanism | What it captures | Where to query |
+|-----------|-----------------|----------------|
+| **Diagnostic Settings** (gateway logs) | URL, status code, latency, IP, UPN header, subscription | APIM → Monitoring → Logs |
+| **Custom Metrics** (`emit-metric`) | Request/response/error counts by UPN | Azure Monitor → Metrics |
 
-### KQL Query for Log Analytics
+### Setup: Enable UPN in Gateway Logs
+
+The policy extracts the caller's UPN from the JWT and sets it as a request header (`X-Caller-UPN`). To surface it in `ApiManagementGatewayLogs`, configure API Diagnostics to capture that header:
+
+1. **APIM** → **APIs** → select `Fabric MCP Data Agent`
+2. **Settings** tab → scroll to **Diagnostics Logs**
+3. Click the **Azure Monitor** row (or add one)
+4. Set **Sampling** → `100%`
+5. Under **Frontend Request** → **Headers to log** → add: `X-Caller-UPN`
+6. Click **Save**
+
+After deploying the policy and sending a request (wait ~5 min for ingestion):
 
 ```kql
-AppTraces
-| where Message contains "fabric-mcp-agent"
-| extend payload = parse_json(Message)
+ApiManagementGatewayLogs
+| where TimeGenerated > ago(1h)
+| project TimeGenerated, ApimSubscriptionId, RequestHeaders, ResponseCode
+| take 5
+```
+
+### KQL Queries
+
+Run from: **APIM → Monitoring → Logs** (or the `onemtcww` workspace directly)
+
+See [`kql.md`](kql.md) for the full query library. Quick reference:
+
+```kql
+// All traffic with UPN and subscription
+ApiManagementGatewayLogs
+| where TimeGenerated > ago(24h)
 | project
     TimeGenerated,
-    CallerUPN = tostring(payload.callerUpn),
-    UserQuery = tostring(payload.userQuery),
-    AssistantResponse = tostring(payload.assistantResponse),
-    SubscriptionId = tostring(payload.subscriptionId),
-    LatencyMs = toint(payload.backendLatencyMs),
-    OperationId = tostring(payload.operationId)
+    ApimSubscriptionId,
+    CallerUPN = tostring(RequestHeaders["X-Caller-UPN"]),
+    ResponseCode,
+    BackendTime
 | order by TimeGenerated desc
 ```
 
@@ -275,7 +293,9 @@ AppTraces
 
 - **Namespace:** `Fabric MCP Agent`
 - **Metrics:** `fabric-mcp-request`, `fabric-mcp-response`, `fabric-mcp-error`
-- **Dimensions:** Subscription ID, Caller UPN, MCP Method, Status Code
+- **Dimensions:** Caller UPN, Status Code, Error Reason
+
+To view: APIM → **Monitoring → Metrics** → Namespace: `Fabric MCP Agent`
 
 ---
 
@@ -300,6 +320,7 @@ fabric-pcc/
 | `401 Unauthorized` from APIM | Token expired — regenerate with `az account get-access-token` |
 | `401` with valid token | Check tenant ID in token matches `32dc2feb-...` (onemtc.net) |
 | `403 Forbidden` from Fabric | Your user needs access to the Fabric workspace |
-| No logs in Log Analytics | Ensure App Insights is enabled on the API in APIM Settings → Diagnostics |
+| No UPN in gateway logs | Ensure API Diagnostics has `X-Caller-UPN` in "Headers to log" (see §5) |
+| No rows in `ApiManagementGatewayLogs` | Check Diagnostic Settings exist (APIM → Diagnostic settings) and wait ~5 min |
 | Claude can't connect | Verify the `url` is reachable and the subscription key is correct |
 | Token audience mismatch | Ensure scope is `https://api.fabric.microsoft.com/.default` (not `.com/user_impersonation`) |

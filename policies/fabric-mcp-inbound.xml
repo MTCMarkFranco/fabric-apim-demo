@@ -2,9 +2,7 @@
     <inbound>
         <base />
 
-        <!-- ═══════════════════════════════════════════════════════════════════ -->
-        <!-- Step 1: Validate the incoming Bearer token from the caller        -->
-        <!-- ═══════════════════════════════════════════════════════════════════ -->
+        <!-- Validate the incoming Bearer token -->
         <validate-azure-ad-token tenant-id="32dc2feb-7716-4cf8-b1a6-f02cf37fd6bf"
                                   header-name="Authorization"
                                   failed-validation-httpcode="401"
@@ -15,69 +13,27 @@
             </audiences>
         </validate-azure-ad-token>
 
-        <!-- ═══════════════════════════════════════════════════════════════════ -->
-        <!-- Step 2: Extract observability context from token and request       -->
-        <!-- ═══════════════════════════════════════════════════════════════════ -->
-
         <!-- Extract UPN from the validated JWT -->
         <set-variable name="caller-upn" value="@{
             var jwt = (Jwt)context.Variables["validated-jwt"];
             return jwt.Claims.GetValueOrDefault("upn", "unknown");
         }" />
 
-        <!-- Extract APIM Subscription ID (if subscription key was provided) -->
-        <set-variable name="subscription-id" value="@(context.Subscription != null ? context.Subscription.Id : "anonymous")" />
-
-        <!-- Cache the request body for logging (read it non-destructively) -->
-        <set-variable name="request-body" value="@(context.Request.Body.As<string>(preserveContent: true))" />
-
-        <!-- Extract the user query from the MCP request body -->
-        <!-- MCP tool calls: {"jsonrpc":"2.0","method":"tools/call","params":{"arguments":{"userQuestion":"..."}}} -->
-        <set-variable name="user-query" value="@{
-            try {
-                var body = (string)context.Variables["request-body"];
-                var json = JObject.Parse(body);
-
-                // MCP tools/call with userQuestion argument
-                var userQuestion = json.SelectToken("$.params.arguments.userQuestion");
-                if (userQuestion != null) { return userQuestion.ToString(); }
-
-                // MCP messages format (if present)
-                var messages = json.SelectToken("$.params.messages");
-                if (messages != null) {
-                    var lastUser = messages.Children()
-                        .Where(m => m["role"]?.ToString() == "user")
-                        .LastOrDefault();
-                    if (lastUser != null) { return lastUser["content"]?.ToString() ?? ""; }
-                }
-
-                // Fallback: return method name for non-query calls
-                var method = json["method"]?.ToString() ?? "unknown";
-                return $"[MCP method: {method}]";
-            } catch {
-                return "[parse-error]";
-            }
-        }" />
-
-        <!-- ═══════════════════════════════════════════════════════════════════ -->
-        <!-- Step 3: Route to Fabric Data Agent MCP backend                    -->
-        <!-- ═══════════════════════════════════════════════════════════════════ -->
+        <!-- Route to Fabric Data Agent MCP backend -->
         <set-backend-service base-url="https://api.fabric.microsoft.com/v1/mcp/workspaces/3a074a45-be8c-4556-8866-bb3c81327a6b/dataagents/46e225d0-6029-4491-a943-76f6dc33ca1f/agent" />
 
         <set-header name="Content-Type" exists-action="override">
             <value>application/json</value>
         </set-header>
 
+        <!-- Surface UPN in a header so API Diagnostics captures it in gateway logs -->
+        <set-header name="X-Caller-UPN" exists-action="override">
+            <value>@((string)context.Variables["caller-upn"])</value>
+        </set-header>
+
         <!-- Emit custom metric for request tracking -->
         <emit-metric name="fabric-mcp-request" value="1" namespace="Fabric MCP Agent">
-            <dimension name="Subscription ID" value="@((string)context.Variables["subscription-id"])" />
             <dimension name="Caller UPN" value="@((string)context.Variables["caller-upn"])" />
-            <dimension name="MCP Method" value="@{
-                try {
-                    var body = (string)context.Variables["request-body"];
-                    return JObject.Parse(body)["method"]?.ToString() ?? "unknown";
-                } catch { return "unknown"; }
-            }" />
         </emit-metric>
     </inbound>
 
@@ -88,61 +44,8 @@
     <outbound>
         <base />
 
-        <!-- ═══════════════════════════════════════════════════════════════════ -->
-        <!-- Step 4: Extract assistant response and log to Log Analytics       -->
-        <!-- ═══════════════════════════════════════════════════════════════════ -->
-
-        <!-- Cache the response body for logging -->
-        <set-variable name="response-body" value="@(context.Response.Body.As<string>(preserveContent: true))" />
-
-        <!-- Extract the assistant response from the MCP response -->
-        <set-variable name="assistant-response" value="@{
-            try {
-                var body = (string)context.Variables["response-body"];
-                var json = JObject.Parse(body);
-
-                // MCP result content (tools/call response)
-                var content = json.SelectToken("$.result.content");
-                if (content != null) {
-                    var textParts = content.Children()
-                        .Where(c => c["type"]?.ToString() == "text")
-                        .Select(c => c["text"]?.ToString() ?? "");
-                    var combined = string.Join(" ", textParts);
-                    // Truncate to 4KB to stay within Log Analytics limits
-                    return combined.Length > 4096 ? combined.Substring(0, 4096) + "...[truncated]" : combined;
-                }
-
-                // Fallback: return result as string
-                var result = json["result"]?.ToString() ?? "";
-                return result.Length > 4096 ? result.Substring(0, 4096) + "...[truncated]" : result;
-            } catch {
-                return "[parse-error]";
-            }
-        }" />
-
-        <!-- Log the full interaction to Log Analytics via Application Insights -->
-        <!-- Requires: APIM logger named "log-analytics-logger" connected to App Insights / Log Analytics -->
-        <trace source="fabric-mcp-agent" severity="information">
-            <message>@{
-                return new JObject(
-                    new JProperty("timestamp", DateTime.UtcNow.ToString("o")),
-                    new JProperty("subscriptionId", (string)context.Variables["subscription-id"]),
-                    new JProperty("callerUpn", (string)context.Variables["caller-upn"]),
-                    new JProperty("userQuery", (string)context.Variables["user-query"]),
-                    new JProperty("assistantResponse", (string)context.Variables["assistant-response"]),
-                    new JProperty("operationId", context.RequestId.ToString()),
-                    new JProperty("backendLatencyMs", (context.Response != null ?
-                        (int)(context.Elapsed.TotalMilliseconds) : 0))
-                ).ToString();
-            }</message>
-            <metadata name="Subscription ID" value="@((string)context.Variables["subscription-id"])" />
-            <metadata name="Caller UPN" value="@((string)context.Variables["caller-upn"])" />
-            <metadata name="User Query" value="@((string)context.Variables["user-query"])" />
-        </trace>
-
         <!-- Emit response metric -->
         <emit-metric name="fabric-mcp-response" value="1" namespace="Fabric MCP Agent">
-            <dimension name="Subscription ID" value="@((string)context.Variables["subscription-id"])" />
             <dimension name="Caller UPN" value="@((string)context.Variables["caller-upn"])" />
             <dimension name="Status Code" value="@(context.Response.StatusCode.ToString())" />
         </emit-metric>
@@ -151,27 +54,9 @@
     <on-error>
         <base />
 
-        <!-- Log errors with context for troubleshooting -->
-        <trace source="fabric-mcp-agent" severity="error">
-            <message>@{
-                return new JObject(
-                    new JProperty("timestamp", DateTime.UtcNow.ToString("o")),
-                    new JProperty("subscriptionId", context.Variables.ContainsKey("subscription-id") ?
-                        (string)context.Variables["subscription-id"] : "unknown"),
-                    new JProperty("callerUpn", context.Variables.ContainsKey("caller-upn") ?
-                        (string)context.Variables["caller-upn"] : "unknown"),
-                    new JProperty("userQuery", context.Variables.ContainsKey("user-query") ?
-                        (string)context.Variables["user-query"] : "unknown"),
-                    new JProperty("error", context.LastError.Message),
-                    new JProperty("errorReason", context.LastError.Reason),
-                    new JProperty("operationId", context.RequestId.ToString())
-                ).ToString();
-            }</message>
-        </trace>
-
         <!-- Emit error metric -->
         <emit-metric name="fabric-mcp-error" value="1" namespace="Fabric MCP Agent">
-            <dimension name="Subscription ID" value="@(context.Variables.ContainsKey("subscription-id") ? (string)context.Variables["subscription-id"] : "unknown")" />
+            <dimension name="Caller UPN" value="@(context.Variables.ContainsKey("caller-upn") ? (string)context.Variables["caller-upn"] : "unknown")" />
             <dimension name="Error Reason" value="@(context.LastError.Reason)" />
         </emit-metric>
     </on-error>
