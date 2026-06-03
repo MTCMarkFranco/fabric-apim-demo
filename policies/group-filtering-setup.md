@@ -6,6 +6,115 @@ Filter access to the Fabric MCP endpoint based on the caller's Entra ID security
 
 1. An Entra ID security group containing authorized users
 2. The group's **Object ID** (found in Entra ID → Groups → your group → Overview)
+3. A **public client app registration** for Claude Desktop (see below)
+
+---
+
+## Configuring Claude Desktop to Acquire the Right Token
+
+Claude Desktop's MCP transport doesn't have built-in OAuth, so you need to acquire a token externally and supply it. Here's the end-to-end setup.
+
+### Step A: Register a Public Client App in Entra ID
+
+1. Go to **Entra ID → App Registrations → New registration**
+2. Name: `Claude Desktop MCP Client` (or similar)
+3. Supported account types: **Single tenant**
+4. Redirect URI: select **Public client/native (mobile & desktop)** → `http://localhost`
+5. Click **Register**
+
+After creation:
+
+6. Go to **API Permissions → Add a permission → APIs my organization uses**
+7. Search for **Power BI Service** (this covers `https://api.fabric.microsoft.com`)
+8. Select **Delegated permissions** → add `Datamart.ReadWrite.All` or the appropriate Fabric scope
+9. Click **Grant admin consent** (or have an admin do this)
+10. Go to **Authentication** → ensure **Allow public client flows** is set to **Yes** (enables device code flow)
+
+Record the **Application (client) ID** and your **Tenant ID** (`32dc2feb-7716-4cf8-b1a6-f02cf37fd6bf`).
+
+### Step B: Acquire a Token via Device Code Flow
+
+Create a helper script that obtains a token. Save as `get-fabric-token.ps1`:
+
+```powershell
+# Requires: Install-Module Az.Accounts (or use MSAL.PS)
+param(
+    [string]$TenantId = "32dc2feb-7716-4cf8-b1a6-f02cf37fd6bf",
+    [string]$ClientId = "YOUR-CLAUDE-CLIENT-APP-ID",
+    [string]$Scope    = "https://api.fabric.microsoft.com/.default"
+)
+
+# Using MSAL.PS for device code flow
+if (-not (Get-Module -ListAvailable MSAL.PS)) {
+    Install-Module MSAL.PS -Scope CurrentUser -Force
+}
+
+$token = Get-MsalToken -ClientId $ClientId `
+                        -TenantId $TenantId `
+                        -Scopes $Scope `
+                        -DeviceCode
+
+# Output just the access token
+$token.AccessToken
+```
+
+Run it once interactively — it will prompt you to open a browser and enter a code. After auth, MSAL caches the refresh token so subsequent calls are silent until the refresh token expires.
+
+### Step C: Configure Claude Desktop MCP
+
+In your `claude_desktop_config.json` (typically `%APPDATA%\Claude\claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "fabric-agent": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://YOUR-APIM-GATEWAY.azure-api.net/fabric-mcp/mcp"],
+      "env": {
+        "AUTHORIZATION": "Bearer <TOKEN>"
+      }
+    }
+  }
+}
+```
+
+Since tokens expire (~60-75 min), a better pattern is to use a wrapper script that refreshes the token at startup:
+
+```json
+{
+  "mcpServers": {
+    "fabric-agent": {
+      "command": "pwsh",
+      "args": ["-File", "C:/Projects/fabric-pcc/scripts/start-mcp.ps1"]
+    }
+  }
+}
+```
+
+Where `start-mcp.ps1` acquires a fresh token and launches the MCP transport:
+
+```powershell
+$token = & "C:/Projects/fabric-pcc/scripts/get-fabric-token.ps1"
+
+$env:AUTHORIZATION = "Bearer $token"
+npx -y mcp-remote "https://YOUR-APIM-GATEWAY.azure-api.net/fabric-mcp/mcp" `
+    --header "Authorization: Bearer $token"
+```
+
+### Step D: Add the User to the Security Group
+
+The user who authenticates via device code must be a member of the Entra security group checked by the APIM policy. Otherwise they'll get a valid token but receive a `403 Forbidden`.
+
+### Token Validation Summary
+
+| Claim | Expected Value | Checked By |
+|-------|---------------|------------|
+| `aud` | `https://api.fabric.microsoft.com` | `validate-azure-ad-token` |
+| `tid` | `32dc2feb-7716-4cf8-b1a6-f02cf37fd6bf` | `validate-azure-ad-token` |
+| `groups` | Contains your security group Object ID | `<choose>` policy block |
+| `upn` | User's email | Extracted for logging |
+
+---
 
 ## Step 1: Configure Group Claims in the App Registration
 
