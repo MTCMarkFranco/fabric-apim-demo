@@ -133,40 +133,15 @@ Invoke-RestMethod -Uri "https://pcc-apim.azure-api.net/fabric-mcp/" -Method POST
 
 ---
 
-## 3. VS Code Configuration
+## 3. Clients
 
-The `.vscode/mcp.json` file connects VS Code's MCP client to the Fabric endpoint through APIM with interactive OAuth authentication:
+Both VS Code and Claude Desktop connect to the gateway as MCP clients using interactive OAuth (Public Client + PKCE) against APIM's authorization server facade. The app registration `e5399261-3e94-4f88-b8f0-74cfff758e6d` is shared by both clients.
 
-```json
-{
-  "servers": {
-    "Fabric Finance Agent (APIM)": {
-      "type": "http",
-      "url": "https://pcc-apim.azure-api.net/fabric-mcp/",
-      "headers": {},
-      "oauth": {
-        "clientId": "e5399261-3e94-4f88-b8f0-74cfff758e6d"
-      }
-    }
-  }
-}
-```
-
-When the MCP server starts, VS Code will:
-1. Fetch `/.well-known/oauth-protected-resource` from the gateway (RFC 9728), then `/.well-known/oauth-authorization-server` to discover auth endpoints[^oauth-404]
-2. Open a browser popup for interactive Entra ID login (Public Client + PKCE)
-3. Exchange the auth code for a token via the `/token` endpoint
-4. Attach the Bearer token to all MCP requests automatically
-
-No manual token pasting required — VS Code handles the full OAuth lifecycle. If you sign out (or VS Code clears the cached session), the server will stop with `Authentication session for Microsoft removed, stopping server` — simply restart it after re-authenticating.
-
----
-
-## 4. Claude Desktop Configuration
+### Claude Desktop
 
 Claude Desktop supports remote MCP servers with OAuth authentication. APIM serves as the OAuth authorization server facade, redirecting to Entra ID for interactive login.
 
-### Setup Steps
+#### Setup Steps
 
 1. **In Claude Desktop:** Add a new MCP server connection
    - **Server URL:** `https://pcc-apim.azure-api.net/fabric-mcp/`
@@ -181,7 +156,55 @@ Claude Desktop supports remote MCP servers with OAuth authentication. APIM serve
 
 3. **Verify:** Ask Claude a question like _"Which product had the highest sales?"_ — it should invoke the Fabric Finance Agent tool
 
-### Entra ID App Registration Requirements
+### VS Code
+
+The `.vscode/mcp.json` file connects VS Code's MCP client to the Fabric endpoint through APIM with interactive OAuth authentication:
+
+```json
+{
+  "servers": {
+    "Fabric Finance Agent (APIM)": {
+      "type": "http",
+      "url": "https://pcc-apim.azure-api.net/fabric-mcp/",
+      "oauth": {
+        "clientId": "e5399261-3e94-4f88-b8f0-74cfff758e6d",
+        "scopes": [
+          "https://api.fabric.microsoft.com/.default",
+          "offline_access"
+        ]
+      }
+    }
+  }
+}
+```
+
+> **Important:** Always specify `scopes` explicitly. Without it, VS Code may request a default scope (e.g. `openid`) that Entra issues a token for, but that token will fail APIM's audience check (`https://api.fabric.microsoft.com`). The APIM `oauth-authorize.xml` and `oauth-token.xml` policies will rewrite the scope server-side as a safety net, but pinning it client-side avoids ambiguity and surprise token-cache issues across clients.
+
+When the MCP server starts, VS Code will:
+1. Fetch `/.well-known/oauth-protected-resource` from the gateway (RFC 9728), then `/.well-known/oauth-authorization-server` to discover auth endpoints[^oauth-404]
+2. Open a browser popup for interactive Entra ID login (Public Client + PKCE)
+3. Exchange the auth code for a token via the `/token` endpoint
+4. Attach the Bearer token to all MCP requests automatically
+
+No manual token pasting required — VS Code handles the full OAuth lifecycle. If you sign out (or VS Code clears the cached session), the server will stop with `Authentication session for Microsoft removed, stopping server` — simply restart it after re-authenticating.
+
+#### Stuck on "Initializing"
+
+If the server hangs on **Initializing…** indefinitely, the issue is almost always client-side OAuth (the APIM/Fabric path is easy to verify independently — see [Calling from cURL](#2-calling-from-curl)). Walk through:
+
+1. **View the MCP output log** — Command Palette → **MCP: List Servers** → select the server → **Show Output**. The log will indicate which stage is failing (discovery, authorize, token exchange, or `initialize`).
+2. **Reset cached auth** — Command Palette → **MCP: Reset Authorization** for the server, then **MCP: Restart Server**. Stale tokens with the wrong scope/audience are a frequent cause after editing `mcp.json`.
+3. **Confirm `scopes` are set** in `.vscode/mcp.json` (see config above).
+4. **Check the redirect URI** the client is using (visible in the output log). It must exactly match a URI on the app registration. Currently registered:
+   - `https://vscode.dev/redirect`
+   - `http://127.0.0.1:33418/`
+   - `https://127.0.0.1:33418`
+   - `http://localhost:33418/`
+
+   If VS Code logs a different loopback port, add it to the app reg — Entra requires exact match for non-loopback hosts (loopback ports are matched flexibly per RFC 8252, but Entra still requires the exact URI to be registered).
+5. **Verify the backend independently** — run the cURL `initialize` test from §2 with a fresh `az account get-access-token`. A 200 with a `serverInfo` block confirms APIM and Fabric are healthy and the issue is purely the client OAuth flow.
+
+### Shared Entra ID App Registration Requirements
 
 The app registration (`e5399261-3e94-4f88-b8f0-74cfff758e6d`) must have:
 
@@ -264,7 +287,7 @@ Claude Desktop                    APIM Gateway                     Entra ID
 
 ---
 
-## 5. Observability & Logging
+## 4. Observability & Logging
 
 Requests through APIM are tracked via two mechanisms:
 
@@ -358,7 +381,7 @@ Keep them all — removing any one breaks at least one client variant.
 
 ---
 
-## 6. APIM OAuth Endpoint Setup
+## 5. APIM OAuth Endpoint Setup
 
 To enable interactive browser login for MCP clients (VS Code, Claude Desktop), APIM serves as an OAuth authorization server facade. Three endpoints are required on a **root-level API** (no URL suffix) with **subscription not required**.
 
@@ -401,7 +424,7 @@ $r.Headers['Location']  # Should start with https://login.microsoftonline.com/..
 | `401` with valid token | Check tenant ID in token matches `32dc2feb-...` (onemtc.net) |
 | `403 Forbidden` from Fabric backend (after successful auth) | App reg is missing `DataAgent.Execute.All` (and friends). See **Required Fabric delegated permissions** above. After patching, re-run admin consent and **disconnect/reconnect the MCP client** so it re-issues a token with the new scopes — existing refresh tokens carry the old scope set. |
 | `403 Forbidden` from Fabric backend with all scopes present | Your user account also needs Contributor (or higher) access to the Fabric workspace hosting the Data Agent |
-| No UPN in gateway logs | Ensure API Diagnostics has `X-Caller-UPN` in "Headers to log" (see §5) |
+| No UPN in gateway logs | Ensure API Diagnostics has `X-Caller-UPN` in "Headers to log" (see §4) |
 | No rows in `ApiManagementGatewayLogs` | Check Diagnostic Settings exist (APIM → Diagnostic settings) and wait ~5 min |
 | VS Code MCP won't connect | Ensure `oauth` property (not `auth`) is set in `.vscode/mcp.json` |
 | VS Code "metadata not found" | Ensure the `/.well-known/oauth-authorization-server` operation exists on a root-level API with empty URL suffix |
@@ -424,7 +447,7 @@ The fix is almost always to add the missing Fabric scope to the app registration
 
 ---
 
-## 7. Group-Based Access Filtering (Optional)
+## 6. Group-Based Access Filtering (Optional)
 
 To restrict MCP access to specific security groups, add a `groups` claim check to the JWT validation policy. See [`policies/OPTIONAL-group-filtering-setup.md`](policies/OPTIONAL-group-filtering-setup.md) for the full setup guide covering:
 
