@@ -1,0 +1,107 @@
+openapi: 3.0.1
+info:
+  title: Fabric MCP Data Agent
+  version: '1.0'
+servers:
+  - url: https://demo-apim.azure-api.net
+paths:
+  /fabric-mcp/:
+    post:
+      summary: MCP Endpoint
+      operationId: mcp-endpoint
+      responses:
+        '200':
+          description: ''
+    get:
+      summary: MCP Endpoint GET SSE
+      operationId: mcp-endpoint-get
+      responses:
+        '200':
+          description: ''
+    delete:
+      summary: MCP Endpoint DELETE
+      operationId: mcp-endpoint-delete
+      responses:
+        '200':
+          description: ''
+  /fabric-mcp/.well-known/oauth-authorization-server:
+    get:
+      summary: OAuth Authorization Server Metadata
+      operationId: oauth-metadata
+      responses:
+        '200':
+          description: ''
+  /fabric-mcp/authorize:
+    get:
+      summary: OAuth Authorize
+      operationId: oauth-authorize
+      responses:
+        '200':
+          description: ''
+  /fabric-mcp/token:
+    post:
+      summary: OAuth Token
+      operationId: oauth-token
+      responses:
+        '200':
+          description: ''
+  /.well-known/oauth-protected-resource:
+    get:
+      summary: Protected Resource Metadata
+      operationId: oauth-protected-resource
+      responses:
+        '200':
+          description: ''
+  /.well-known/oauth-protected-resource/fabric-mcp/:
+    get:
+      summary: Protected Resource Metadata (path)
+      operationId: oauth-protected-resource-path
+      responses:
+        '200':
+          description: ''
+  /.well-known/oauth-authorization-server:
+    get:
+      summary: OAuth Auth Server Metadata (root)
+      operationId: oauth-metadata-root
+      responses:
+        '200':
+          description: ''
+  /.well-known/oauth-authorization-server/fabric-mcp/:
+    get:
+      summary: OAuth Auth Server Metadata (path)
+      operationId: oauth-metadata-path
+      responses:
+        '200':
+          description: ''
+  /fabric-mcp:
+    post:
+      summary: MCP Endpoint POST (noslash)
+      operationId: mcp-endpoint-noslash
+      responses:
+        '200':
+          description: ''
+    get:
+      summary: MCP Endpoint GET (noslash)
+      operationId: mcp-endpoint-get-noslash
+      responses:
+        '200':
+          description: ''
+    delete:
+      summary: MCP Endpoint DELETE (noslash)
+      operationId: mcp-endpoint-delete-noslash
+      responses:
+        '200':
+          description: ''
+components:
+  securitySchemes:
+    apiKeyHeader:
+      type: apiKey
+      name: Ocp-Apim-Subscription-Key
+      in: header
+    apiKeyQuery:
+      type: apiKey
+      name: subscription-key
+      in: query
+security:
+  - apiKeyHeader: [ ]
+  - apiKeyQuery: [ ]
