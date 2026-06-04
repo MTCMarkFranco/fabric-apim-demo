@@ -215,6 +215,8 @@ The app registration (`e5399261-3e94-4f88-b8f0-74cfff758e6d`) must have:
 | Allow public client flows | Yes |
 | Token endpoint auth method | `none` (public client + PKCE) |
 
+![Redirect URI configuration for Claude Desktop and VS Code clients](images/fabric-app-client-redirects.png)
+
 **Required Microsoft Graph delegated permissions:**
 
 | Scope | ID | Purpose |
@@ -230,6 +232,8 @@ The app registration (`e5399261-3e94-4f88-b8f0-74cfff758e6d`) must have:
 | `DataAgent.Execute.All` | `c6756612-6853-4145-a661-90c1d045b2dc` | **Execute the Data Agent MCP tool — without this, Fabric returns 403** |
 | `Item.Read.All` | `d2bc95fc-440e-4b0e-bafd-97182de7aef5` | Read Fabric workspace items |
 | `Workspace.Read.All` | `b2f1b2fa-f35c-407c-979c-a858a808ba85` | Resolve workspace context |
+
+![Fabric API permissions configuration](images/fabric-app-permissions.png)
 
 **Token request must use `scope=https://api.fabric.microsoft.com/.default`** so Entra includes all consented Fabric scopes in the issued token. APIM's `oauth-authorize.xml` and `oauth-token.xml` policies enforce this even if the MCP client passes something else.
 
