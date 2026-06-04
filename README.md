@@ -12,7 +12,7 @@ This project configures Azure API Management (APIM) as a secure gateway in front
 ```
 ┌──────────────┐     ┌───────────────────────────┐     ┌─────────────────────────┐
 │  MCP Client  │────▶│  Azure API Management     │────▶│  Fabric Data Agent MCP  │
-│ (VS Code,    │     │  fabric-ai-demo-pcc       │     │  (Finance Agent)        │
+│ (VS Code,    │     │  pcc-apim                 │     │  (Finance Agent)        │
 │  Claude,     │     │                           │     │                         │
 │  curl)       │     │  ┌─ /.well-known/oauth ─┐ │     │  Workspace: 3a074a45... │
 └──────────────┘     │  │  /authorize (302→Entra)│ │     └─────────────────────────┘
@@ -29,17 +29,18 @@ This project configures Azure API Management (APIM) as a secure gateway in front
 
 | Endpoint | URL | Auth Required |
 |----------|-----|---------------|
-| **MCP Gateway** | `https://fabric-ai-demo-pcc.azure-api.net/fabric-mcp/` | Bearer token + subscription key |
-| **OAuth Metadata** | `https://fabric-ai-demo-pcc.azure-api.net/.well-known/oauth-authorization-server` | None |
-| **Authorize** | `https://fabric-ai-demo-pcc.azure-api.net/authorize` | None (redirects to Entra) |
-| **Token** | `https://fabric-ai-demo-pcc.azure-api.net/token` | None (proxies to Entra) |
+| **MCP Gateway** | `https://pcc-apim.azure-api.net/fabric-mcp/` | Bearer token (subscription not required) |
+| **OAuth Metadata** | `https://pcc-apim.azure-api.net/fabric-mcp/.well-known/oauth-authorization-server` | None |
+| **Authorize** | `https://pcc-apim.azure-api.net/fabric-mcp/authorize` | None (redirects to Entra) |
+| **Token** | `https://pcc-apim.azure-api.net/fabric-mcp/token` | None (proxies to Entra) |
+| **Protected Resource (RFC 9728)** | `https://pcc-apim.azure-api.net/.well-known/oauth-protected-resource` | None |
 | **Direct Fabric** | `https://api.fabric.microsoft.com/v1/mcp/workspaces/3a074a45-be8c-4556-8866-bb3c81327a6b/dataagents/46e225d0-6029-4491-a943-76f6dc33ca1f/agent` | Bearer token |
 
 ## Prerequisites
 
 - Azure CLI installed and signed in (`az login`)
 - Access to the `onemtc.net` tenant (tenant ID: `d7d6e19e-5176-4dea-a576-1681f77e0243`)
-- APIM subscription key (subscription: `Biz-Group-1`)
+- Resource group `rg-pcc-demo` containing APIM service `pcc-apim`
 - Permissions to access the Fabric workspace
 
 ---
@@ -48,13 +49,12 @@ This project configures Azure API Management (APIM) as a secure gateway in front
 
 ### Steps
 
-1. Navigate to **Azure Portal** → **API Management** → `fabric-ai-demo-pcc`
+1. Navigate to **Azure Portal** → **API Management** → `pcc-apim`
 2. Go to **APIs** → `Fabric MCP Data Agent` → **MCP Endpoint** → **Test** tab
-3. Select subscription **Biz-Group-1** from the dropdown
-4. Add header:
+3. Add header:
    - **Name:** `Authorization`
    - **Value:** `Bearer <token>` (see [Getting a Token](#getting-a-bearer-token) below)
-5. Set **Request body** to raw JSON:
+4. Set **Request body** to raw JSON:
 
 ```json
 {
@@ -90,10 +90,9 @@ TOKEN=$(az account get-access-token --resource https://api.fabric.microsoft.com 
 ### Making the Request
 
 ```bash
-curl -X POST "https://fabric-ai-demo-pcc.azure-api.net/fabric-mcp" \
+curl -X POST "https://pcc-apim.azure-api.net/fabric-mcp/" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
-  -H "Ocp-Apim-Subscription-Key: <your-biz-group-1-subscription-key>" \
   -d '{
     "jsonrpc": "2.0",
     "id": 1,
@@ -115,7 +114,6 @@ $token = az account get-access-token --resource https://api.fabric.microsoft.com
 $headers = @{
     "Authorization" = "Bearer $token"
     "Content-Type" = "application/json"
-    "Ocp-Apim-Subscription-Key" = "<your-biz-group-1-subscription-key>"
 }
 
 $body = @{
@@ -130,7 +128,7 @@ $body = @{
     }
 } | ConvertTo-Json -Depth 5
 
-Invoke-RestMethod -Uri "https://fabric-ai-demo-pcc.azure-api.net/fabric-mcp" -Method POST -Headers $headers -Body $body
+Invoke-RestMethod -Uri "https://pcc-apim.azure-api.net/fabric-mcp/" -Method POST -Headers $headers -Body $body
 ```
 
 ---
@@ -142,9 +140,10 @@ The `.vscode/mcp.json` file connects VS Code's MCP client to the Fabric endpoint
 ```json
 {
   "servers": {
-    "Fabric Finance Agent MCP server": {
+    "Fabric Finance Agent (APIM)": {
       "type": "http",
-      "url": "https://fabric-ai-demo-pcc.azure-api.net/fabric-mcp/",
+      "url": "https://pcc-apim.azure-api.net/fabric-mcp/",
+      "headers": {},
       "oauth": {
         "clientId": "e5399261-3e94-4f88-b8f0-74cfff758e6d"
       }
@@ -154,12 +153,12 @@ The `.vscode/mcp.json` file connects VS Code's MCP client to the Fabric endpoint
 ```
 
 When the MCP server starts, VS Code will:
-1. Fetch `/.well-known/oauth-authorization-server` from the gateway to discover auth endpoints
+1. Fetch `/.well-known/oauth-protected-resource` from the gateway (RFC 9728), then `/.well-known/oauth-authorization-server` to discover auth endpoints[^oauth-404]
 2. Open a browser popup for interactive Entra ID login (Public Client + PKCE)
 3. Exchange the auth code for a token via the `/token` endpoint
 4. Attach the Bearer token to all MCP requests automatically
 
-No manual token pasting required — VS Code handles the full OAuth lifecycle.
+No manual token pasting required — VS Code handles the full OAuth lifecycle. If you sign out (or VS Code clears the cached session), the server will stop with `Authentication session for Microsoft removed, stopping server` — simply restart it after re-authenticating.
 
 ---
 
@@ -170,7 +169,7 @@ Claude Desktop supports remote MCP servers with OAuth authentication. APIM serve
 ### Setup Steps
 
 1. **In Claude Desktop:** Add a new MCP server connection
-   - **Server URL:** `https://fabric-ai-demo-pcc.azure-api.net/fabric-mcp/`
+   - **Server URL:** `https://pcc-apim.azure-api.net/fabric-mcp/`
    - **Client ID:** `e5399261-3e94-4f88-b8f0-74cfff758e6d`
 
 2. **Click Connect** — Claude Desktop will:
@@ -296,9 +295,9 @@ ApiManagementGatewayLogs
 
 ### KQL Queries
 
-Run from: **APIM → Monitoring → Logs** (or the `onemtcww` workspace directly)
+Run from: **APIM → Monitoring → Logs** (or the configured Log Analytics workspace directly)
 
-See [`kql.md`](kql.md) for the full query library. Quick reference:
+See [`logging/query-logs-kql.md`](logging/query-logs-kql.md) for the full query library. Quick reference:
 
 ```kql
 // All traffic with UPN and subscription
@@ -328,18 +327,22 @@ To view: APIM → **Monitoring → Metrics** → Namespace: `Fabric MCP Agent`
 ```
 fabric-pcc/
 ├── .vscode/
-│   └── mcp.json                    # VS Code MCP server config (OAuth)
+│   └── mcp.json                       # VS Code MCP server config (OAuth)
+├── app-reg/
+│   └── Fabric Finance Agent MCP server(Microsoft Graph format).json  # Entra app reg manifest
+├── logging/
+│   └── query-logs-kql.md              # KQL queries reference (gateway logs + LLM message logging)
 ├── policies/
-│   ├── fabric-mcp-inbound.xml      # APIM policy — MCP endpoint (token validation, routing, metrics)
-│   ├── oauth-metadata.xml          # APIM policy — /.well-known/oauth-authorization-server
-│   ├── oauth-protected-resource.xml # APIM policy — /.well-known/oauth-protected-resource (RFC 9728)
-│   ├── oauth-authorize.xml          # APIM policy — /authorize (302 redirect to Entra)
-│   └── oauth-token.xml              # APIM policy — /token (proxy to Entra token endpoint)
+│   ├── fabric-mcp-inbound.xml         # APIM policy — MCP endpoint (token validation, routing, metrics)
+│   ├── oauth-metadata.xml             # APIM policy — /.well-known/oauth-authorization-server
+│   ├── oauth-protected-resource.xml   # APIM policy — /.well-known/oauth-protected-resource (RFC 9728)
+│   ├── oauth-authorize.xml            # APIM policy — /authorize (302 redirect to Entra)
+│   ├── oauth-token.xml                # APIM policy — /token (proxy to Entra token endpoint)
+│   └── OPTIONAL-group-filtering-setup.md # Group-claim access filtering guide
 ├── scripts/
-│   ├── deploy-apim-mcp-server.ps1   # One-time provisioning of APIM API + operations + named values
-│   └── redeploy-policies.ps1        # Push all policy XML files to APIM (idempotent)
-├── kql.md                           # KQL queries reference (gateway logs + LLM message logging)
-└── README.md                        # This file
+│   ├── deploy-apim-mcp-server.ps1     # One-time provisioning of APIM API + operations + app reg
+│   └── redeploy-policies.ps1          # Push all policy XML files to APIM (idempotent)
+└── README.md                          # This file
 ```
 
 ### Why so many APIM operations?
@@ -380,10 +383,10 @@ To enable interactive browser login for MCP clients (VS Code, Claude Desktop), A
 
 ```powershell
 # Test metadata discovery
-Invoke-RestMethod -Uri "https://fabric-ai-demo-pcc.azure-api.net/.well-known/oauth-authorization-server"
+Invoke-RestMethod -Uri "https://pcc-apim.azure-api.net/fabric-mcp/.well-known/oauth-authorization-server"
 
 # Test authorize redirect (should return 302)
-$r = Invoke-WebRequest -Uri "https://fabric-ai-demo-pcc.azure-api.net/authorize?response_type=code&client_id=e5399261-3e94-4f88-b8f0-74cfff758e6d&redirect_uri=https://claude.ai/api/mcp/auth_callback&code_challenge=test&code_challenge_method=S256&state=test" -MaximumRedirection 0 -ErrorAction SilentlyContinue -SkipHttpErrorCheck
+$r = Invoke-WebRequest -Uri "https://pcc-apim.azure-api.net/fabric-mcp/authorize?response_type=code&client_id=e5399261-3e94-4f88-b8f0-74cfff758e6d&redirect_uri=https://vscode.dev/redirect&code_challenge=test&code_challenge_method=S256&state=test" -MaximumRedirection 0 -ErrorAction SilentlyContinue -SkipHttpErrorCheck
 $r.StatusCode  # Should be 302
 $r.Headers['Location']  # Should start with https://login.microsoftonline.com/...
 ```
@@ -423,8 +426,12 @@ The fix is almost always to add the missing Fabric scope to the app registration
 
 ## 7. Group-Based Access Filtering (Optional)
 
-To restrict MCP access to specific security groups, add a `groups` claim check to the JWT validation policy. See [`policies/group-filtering-setup.md`](policies/group-filtering-setup.md) for the full setup guide covering:
+To restrict MCP access to specific security groups, add a `groups` claim check to the JWT validation policy. See [`policies/OPTIONAL-group-filtering-setup.md`](policies/OPTIONAL-group-filtering-setup.md) for the full setup guide covering:
 
 - Configuring the app registration to emit group claims
 - Adding `<required-claims>` to the inbound policy
 - Testing with MSAL.PS token acquisition
+
+---
+
+[^oauth-404]: **About the OAuth discovery 404 warnings.** When VS Code (or any MCP client) connects, you may see warnings like `Failed to fetch authorization server metadata from https://login.microsoftonline.com/.well-known/oauth-authorization-server/<tenant>/v2.0: 404` and the same for `/.well-known/openid-configuration/<tenant>/v2.0`. These are **expected and harmless**. The MCP client probes multiple RFC 8414 / OpenID Connect Discovery path variants in order; Entra ID only publishes metadata at the tenant-prefixed path `https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration`, so the first two probes always 404 and the client falls back to the working URL (you'll see `Discovered authorization server metadata at ...` immediately after). No action required.

@@ -38,7 +38,10 @@
     </inbound>
 
     <backend>
-        <base />
+        <!-- MCP Streamable HTTP returns SSE; disable APIM response buffering so
+             chunks stream back to the client instead of waiting for completion.
+             Long timeout supports long-running tool calls / streamed responses. -->
+        <forward-request buffer-response="false" timeout="300" />
     </backend>
 
     <outbound>

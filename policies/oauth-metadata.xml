@@ -7,7 +7,7 @@
                 <value>application/json</value>
             </set-header>
             <set-body>{
-  "issuer": "https://login.microsoftonline.com/d7d6e19e-5176-4dea-a576-1681f77e0243/v2.0",
+  "issuer": "https://pcc-apim.azure-api.net/fabric-mcp/",
   "authorization_endpoint": "https://pcc-apim.azure-api.net/fabric-mcp/authorize",
   "token_endpoint": "https://pcc-apim.azure-api.net/fabric-mcp/token",
   "scopes_supported": ["https://api.fabric.microsoft.com/.default", "openid", "profile", "offline_access"],

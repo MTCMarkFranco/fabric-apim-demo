@@ -4,8 +4,9 @@
     "Fabric Finance Agent (APIM)": {
       "type": "http",
       "url": "https://pcc-apim.azure-api.net/fabric-mcp/",
+      "headers": {},
       "oauth": {
-        "clientId": "e5399261-3e94-4f88-b8f0-74cfff758e6d"
+        "clientId": "e5399261-3e94-4f88-b8f0-74cfff758e6d",
       }
     }
   }

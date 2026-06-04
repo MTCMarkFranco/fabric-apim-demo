@@ -32,7 +32,7 @@
     (or API-level policy) that returns OAuth metadata for ALL requests, including POST.
 
     To fix in the Azure Portal:
-    1. Go to APIM → fabric-ai-demo-pcc → APIs → select the API at path "fabric-mcp"
+    1. Go to APIM → pcc-apim → APIs → select the API at path "fabric-mcp"
     2. Check "All operations" policy — if oauth-metadata.xml is applied at API level,
        REMOVE it from there (it should only be on the specific GET operation)
     3. Ensure these SEPARATE operations exist:
@@ -45,7 +45,7 @@
        NOT OAuth metadata JSON
 
 .EXAMPLE
-    .\deploy-apim-mcp-server.ps1 -ResourceGroup "rg-fabric-ai-demo" -ServiceName "fabric-ai-demo-pcc" -ApiId "fabric-mcp-data-agent"
+    .\deploy-apim-mcp-server.ps1 -ResourceGroup "rg-pcc-demo" -ServiceName "pcc-apim" -ApiId "FABRIC-MCP-API"
 #>
 
 param(
